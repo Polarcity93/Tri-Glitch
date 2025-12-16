@@ -1,0 +1,739 @@
+// Unedited base game functions that should be changed in order to properly load your character.
+
+define MISC.player1.character		= u16[0xffffff08] //literally exactly the same as global.characters, renamed for consistency
+define MISC.player2.character		= u16[0xffffff0c] //used to determine the 2nd player character. (USED IN THE CUSTOM PLAYER 2 ADDON)
+
+//to define a character, create a global variable as shown here. make sure it's set to zero!
+global u8 CHARACTER_ASHURA = 0
+global u8 CHARACTER_BLUCKLES = 0
+global u8 CHARACTER_WECHNIA = 0
+
+//check for your character by using slotnum == CHARACTER_CUSTOM (or whatever your character is defined as!)
+function bool MISC.SetCharAsValid(u8 slotnum) //Determine what values are valid
+{
+	bool base = base.MISC.SetCharAsValid(slotnum)
+	//Manual slot checking
+	if (slotnum == CHARACTER_ASHURA || slotnum == CHARACTER_BLUCKLES || slotnum == CHARACTER_WECHNIA) //set this to your char number
+		return true
+	else if base //bases the function, checks for lower slots
+		return true
+	else //return false if none of these are true
+		return false
+}
+
+//Function specific to TAG TEAM compatibility. basically, do you want it to be compatible with tag team? otherwise ignore this.
+function bool TagTeam.SetMISCAsValid(u8 slot)
+{
+    bool base = base.TagTeam.SetMISCAsValid(slot)
+	if ((slot == CHARACTER_ASHURA || slot == CHARACTER_BLUCKLES || slot == CHARACTER_WECHNIA))
+        return true
+	else if base
+		return true
+    else
+        return false
+}
+
+// Sets your character to valid for Blue Sphere (not relevant to special stages)
+function bool MISC.SetBluSphereCharAsValid(u8 slotnum) //Determine what values are valid
+{
+	bool base = base.MISC.SetBluSphereCharAsValid(slotnum)
+	//Manual slot checking
+	if (slotnum == CHARACTER_ASHURA || slotnum == CHARACTER_BLUCKLES || slotnum == CHARACTER_WECHNIA) //set this to your char number
+		return true
+	else if base //bases the function, checks for lower slots
+		return true
+	else //return false if none of these are true
+		return false
+}
+
+// Sets a unique bumper sprite for your character in the Blue Sphere title screen! (only if your character *has* bluespheres, defined in MISC.SetBluSphereCharAsValid())
+function string MISC.getBlusphereBumpers(u8 char)
+{
+	if char == CHARACTER_ASHURA
+		return "bump_ashura"
+	else if char == CHARACTER_BLUCKLES
+		return "bump_bluckles"
+	else if char == CHARACTER_WECHNIA
+		return "bump_wechnia"
+	else
+		return base.MISC.getBlusphereBumpers(char)
+}
+
+//to set your char, simply replace CHARACTER_CUSTOM with your character's variable! if you're defining more than one, just duplicate the code for however many there are.
+function void MISC.SetChars(u8 val)
+{
+	val += 1
+	CHARACTER_ASHURA = val
+
+	val += 1
+	CHARACTER_BLUCKLES = val
+
+	val += 1
+	CHARACTER_WECHNIA = val
+	
+	base.MISC.SetChars(val)
+}
+
+// Make sure the two functions below are correctly correlated, problems will occur otherwise (primarily with saving)
+function string MISC.GetStringFromChar(u8 char)
+{
+	if char == CHARACTER_ASHURA
+		return "CHARACTER_ASHURA"
+	else if char == CHARACTER_BLUCKLES
+		return "CHARACTER_BLUCKLES"
+	else if char == CHARACTER_WECHNIA
+		return "CHARACTER_WECHNIA"
+	else
+		return base.MISC.GetStringFromChar(char)
+}
+
+function u8 MISC.GetCharFromString(string char)
+{
+	if char == CHARACTER_ASHURA
+		return "CHARACTER_ASHURA"
+	else if char == CHARACTER_BLUCKLES
+		return "CHARACTER_BLUCKLES"
+	else if char == CHARACTER_WECHNIA
+		return "CHARACTER_WECHNIA"
+	else
+		return base.MISC.GetCharFromString(char)
+}
+
+// These functions determine the base character of either the first OR 2nd player depending on how code applies it.
+function u8 MISC.getCharBase(u8 character)
+{
+	if character == CHARACTER_ASHURA
+		return CHARACTER_SONIC
+    if character == CHARACTER_BLUCKLES
+		return CHARACTER_KNUCKLES
+    if character == CHARACTER_WECHNIA
+		return CHARACTER_KNUCKLES
+	return base.MISC.getCharBase(character)
+}
+
+//Does your character have Tails' Tails?
+//This ignores the base character, so for example, knuckles can have tails' tails if you want.
+function u8 MISC.useTailsTails(u8 character)
+{
+	if (character == CHARACTER_ASHURA || character == CHARACTER_BLUCKLES || character == CHARACTER_WECHNIA)
+		return false
+	return base.MISC.useTailsTails(character)
+}
+
+// Necessary for Second Player MISC support
+function u8 MISC.GetPartner(u8 character)
+{
+	u8 slotnum = character - 1
+	if (slotnum == CHARACTER_ASHURA || slotnum == CHARACTER_BLUCKLES || slotnum == CHARACTER_WECHNIA)
+		return 0xff //make this CHARACTER_TAILS if you want your char to have tails, you can also make this CHARACTER_KNUCKLES or CHARACTER_SONIC but unless you have custom player 2s, this will do nothing.
+	return base.MISC.GetPartner(character)
+}
+
+// Changes the lives icon for HUD
+function string getCharacterLivesIcon(u8 character)
+{
+	// example, change to your own slot
+	if global.characters == CHARACTER_ASHURA
+		return "hud_lives_icon_ashura"
+	if global.characters == CHARACTER_BLUCKLES
+		return "hud_lives_icon_bluckles"
+	if global.characters == CHARACTER_WECHNIA
+		return "hud_lives_icon_wechnia"
+	
+	return base.getCharacterLivesIcon(character)
+}
+
+// Changes continues icon for Special Stage Results
+function string getCharacterContinueIcon(u8 character)
+{
+	// example, change to your own slot
+	// Special handling for active extra character
+	if global.characters == CHARACTER_ASHURA
+		return "continue_icon_ashura"
+	if global.characters == CHARACTER_BLUCKLES
+		return "continue_icon_bluckles"
+	if global.characters == CHARACTER_WECHNIA
+		return "continue_icon_wechnia"
+	
+	 // Call the base function
+	return base.getCharacterContinueIcon(character)
+}
+
+// Changes name sprite for level results and Special Stage results
+// "SUPER" name sprite and "HYPER" name sprite add "_super" and "_hyper" onto the end of your sprite key, respectively.
+function string getCharacterResultsNameplate(u8 character)
+{
+	// example, change to your own slot
+	if global.characters == CHARACTER_ASHURA
+		return "result_nameplate_ashura"
+	if global.characters == CHARACTER_BLUCKLES
+		return "result_nameplate_bluckles"
+	if global.characters == CHARACTER_WECHNIA
+		return "result_nameplate_wechnia"
+	return base.getCharacterResultsNameplate(character)
+}
+
+// Changes the sprite key for primary character (replacing the one corresponding to your character base) on the signpost
+function string getCharacterSignpostSpriteKey(u8 character)
+{
+	if character == CHARACTER_ASHURA
+	{
+		return "signpost_ashura"
+	}
+	if character == CHARACTER_BLUCKLES
+	{
+		return "signpost_bluckles"
+	}
+	if character == CHARACTER_WECHNIA
+	{
+		return "signpost_wechnia"
+	}
+	
+	// Call the base function
+	return base.getCharacterSignpostSpriteKey(character)
+}
+
+// Changes sprite keys for character endposes at their respective ends of the game
+function string getCharacterEndPoseSpriteKey(u8 character, bool isSuperActive)
+{
+	if character == CHARACTER_ASHURA
+		return stringformat((isSuperActive) ? "endpose_ashura_super" : "endpose_ashura", character)
+	if character == CHARACTER_BLUCKLES
+		return stringformat((isSuperActive) ? "endpose_bluckles_super" : "endpose_bluckles", character)
+	if character == CHARACTER_WECHNIA
+		return stringformat((isSuperActive) ? "endpose_wechnia_super" : "endpose_wechnia", character)
+		//load seperate super/base endpose sprites. super is endpose_char4_super, base is endpose_char4
+	return base.getCharacterEndPoseSpriteKey(character, isSuperActive)
+}
+
+// ESS compat. make sure the u64 in ESS_getcharname matches the name checks in ESS_getCharLifeIcon and ESS_getCharContIcon
+function u64 ESS_getcharname(u8 chars)
+{
+	u8 slotnum = chars - 1
+	if slotnum == CHARACTER_ASHURA
+		return "C3ASHURA"
+	else if slotnum == CHARACTER_BLUCKLES
+		return "C3BLUCKLES"
+	else if slotnum == CHARACTER_WECHNIA
+		return "C3WECHNIA"
+	else
+		return base.ESS_getcharname(chars)
+}
+
+function u64 ESS_getCharLifeIcon(u64 name)
+{
+	if (name == "C3ASHURA")
+		return "ESS_Life_Ashura"
+	if (name == "C3BLUCKLES")
+		return "ESS_Life_Bluckles"
+	if (name == "C3WECHNIA")
+		return "ESS_Life_Wechnia"
+	return base.ESS_getCharLifeIcon(name)
+}
+
+function u64 ESS_getCharContIcon(u64 name)
+{
+	if (name == "C3ASHURA")
+		return "ESS_Cont_Ashura"
+	if (name == "C3BLUCKLES")
+		return "ESS_Cont_Bluckles"
+	if (name == "C3WECHNIA")
+		return "ESS_Cont_Wechnia"
+		//replace with return "yourconticon"
+	return base.ESS_getCharContIcon(name)
+}
+
+// Specific to MISC for convenience. Modify to include your character's palette(s).
+function string getMISCPaletteKey(u8 character)
+{
+	if (character == CHARACTER_ASHURA)
+    {
+		return "character_palette_ashura"
+    }
+	if (character == CHARACTER_BLUCKLES)
+    {
+		return "character_palette_bluckles"
+    }
+	if (character == CHARACTER_WECHNIA)
+    {
+		return "character_palette_wechnia"
+    }
+	return base.getMISCPaletteKey(character)
+}
+
+// for more complex palette loading criteria, check AdvancedFunctions.
+
+// Modify to include your character's Blue Sphere special stage sprites
+function string getCharacterBluesphereSpriteKey(u8 character)
+{
+	if (global.characters == CHARACTER_ASHURA)
+	{
+		return "bluesphere_ashura"
+	}
+	if (global.characters == CHARACTER_BLUCKLES)
+	{
+		return "bluesphere_bluckles"
+	}
+	if (global.characters == CHARACTER_WECHNIA)
+	{
+		return "bluesphere_wechnia"
+	}
+	return base.getCharacterBluesphereSpriteKey(character)
+}
+
+// Modify to include your character's Blue Sphere special stage palette
+function string getCharacterBluespherePaletteKey(u8 character)
+{
+    if (global.characters == CHARACTER_ASHURA)
+	{
+		return "bluesphere_palette_ashura"
+	}
+	if (global.characters == CHARACTER_BLUCKLES)
+	{
+		return "bluesphere_palette_bluckles"
+	}
+	if (global.characters == CHARACTER_WECHNIA)
+	{
+		return "bluesphere_palette_wechnia"
+	}
+	return base.getCharacterBluespherePaletteKey(character)
+}
+
+// Animated continue icons for continue screen (for how many continues you have left)
+function string MISC.getContinueIcons(u8 frame) //frames go between 0 and 1
+{
+	if (global.characters == CHARACTER_ASHURA)
+	{
+		return stringformat("continue_icon_ashura_%d", frame)
+	}
+	if (global.characters == CHARACTER_BLUCKLES)
+	{
+		return stringformat("continue_icon_bluckles_%d", frame)
+	}
+	if (global.characters == CHARACTER_WECHNIA)
+	{
+		return stringformat("continue_icon_wechnia_%d", frame)
+	}
+}
+
+// Character sprites for their continue animations
+function string MISC.getContinueSprites(u8 frame) //frames go between 0 and 1
+{
+	if (global.characters == CHARACTER_ASHURA)
+	{
+		return stringformat("character_ashura_continue_%d", frame)
+	}
+	if (global.characters == CHARACTER_BLUCKLES)
+	{
+		return stringformat("character_bluckles_continue_%d", frame)
+	}
+	if (global.characters == CHARACTER_WECHNIA)
+	{
+		return stringformat("character_wechnia_continue_%d", frame)
+	}
+}
+
+// for special continue sprites SPECIFIC TO HAVING A PARTNER, check AdvancedFunctions.lemon
+
+// GetCharSpriteKey functions to be used in tandem with stuff in RenderChar.lemon
+function string MISC.GetCharSpriteKey(u8 animationSprite)
+{
+	return MISC.GetCharSpriteKey(animationSprite, global.characters)
+}
+
+function string MISC.GetCharSpriteKey(u8 animationSprite, u8 character)
+{
+	if (character == CHARACTER_ASHURA)
+	{
+		return super.active ? stringformat("character_superashura_0x%02x", animationSprite) : stringformat("character_ashura_0x%02x", animationSprite) //replace with your sprite key!
+	}
+	if (character == CHARACTER_BLUCKLES)
+	{
+		return super.active ? stringformat("character_superbluckles_0x%02x", animationSprite) : stringformat("character_bluckles_0x%02x", animationSprite) //replace with your sprite key!
+	}
+	if (character == CHARACTER_WECHNIA)
+	{
+		return super.active ? stringformat("character_superwechnia_0x%02x", animationSprite) : stringformat("character_wechnia_0x%02x", animationSprite) //replace with your sprite key!
+	}
+	return base.MISC.GetCharSpriteKey(animationSprite, character)
+}
+
+// Used for Discord statuses for your character's name, by default uses the same name as Act Select
+function string MISC.GetCharNameDiscordRPC(u8 character)
+{
+	if (character != CHARACTER_ASHURA && character != CHARACTER_BLUCKLES && character != CHARACTER_WECHNIA)
+		return base.MISC.GetCharNameDiscordRPC(character)
+	return MISC.GetCharName(character+1)
+}
+
+// Used for the small image in the Discord RPC for your character, by default uses the unknown icon, you can add your own icon by replacing it with a link to your image
+function string MISC.setDiscordSmallImage(u8 character)
+{
+	if (character != CHARACTER_ASHURA && character != CHARACTER_BLUCKLES && character != CHARACTER_WECHNIA)
+		return base.MISC.setDiscordSmallImage(character)
+	return "character_unknown"
+}
+
+// Used for your character's name in Act select. and probably at least one other thing (Contributed by AtomicRay)
+function string MISC.GetCharName(u8 character)
+{
+	u8 slotnum = (global.game_mode == 0x2c) ? character : (character - 1)
+	if slotnum == CHARACTER_ASHURA
+		return "Ashura" //name
+	if slotnum == CHARACTER_BLUCKLES
+		return "Bluckles" //name
+	if slotnum == CHARACTER_WECHNIA
+		return "Wechnia" //name
+	
+	return base.MISC.GetCharName(character)
+}
+
+// Default way of rendering characters in Act Select
+function string MISC.GetActSelSprite(u8 character)
+{
+	u8 slotnum = (global.game_mode == 0x2c) ? character : (character - 1)
+	if slotnum == CHARACTER_ASHURA
+		return "ActSel_Ashura" //sprite key
+	if slotnum == CHARACTER_BLUCKLES
+		return "ActSel_Bluckles" //sprite key
+	if slotnum == CHARACTER_WECHNIA
+		return "ActSel_Wechnia" //sprite key
+		
+	return base.MISC.GetActSelSprite(character)
+}
+
+// Default way of rendering a character's partner in Act Select if they have one
+function string MISC.getActSelectPartnerKey(u8 character)
+{
+	u8 slotnum = (global.game_mode == 0x2c) ? character : (character - 1)
+	if (slotnum == CHARACTER_ASHURA || slotnum == CHARACTER_BLUCKLES || slotnum == CHARACTER_WECHNIA) //replace with your char
+	{
+		//you CAN render anyone here with a different sprite key. e.g. "ActSel_Ashura"
+		return 0 //but by default, just render tails.
+	}
+		
+	return base.MISC.getActSelectPartnerKey(character)
+}
+
+// Renders the lives & continues icons in the vanilla Data Select
+function void MISC.drawLifeContSprite(s16 px, s16 py, u16 renderQueue, u8 slotnum)
+{
+	if (slotnum == CHARACTER_ASHURA) // Character selection AFTER Knuckles & Tails, sets new icon sprites
+	{
+		string key = "dataSel_lifeContinue_ashura" //replace with your sprite
+		Renderer.drawCustomSprite(key, px - 18, py + 0x08, 0x80, SPRITE_FLAG_PRIO, renderQueue)
+	}
+	else if (slotnum == CHARACTER_BLUCKLES) // Character selection AFTER Knuckles & Tails, sets new icon sprites
+	{
+		string key = "dataSel_lifeContinue_bluckles" //replace with your sprite
+		Renderer.drawCustomSprite(key, px - 18, py + 0x08, 0x80, SPRITE_FLAG_PRIO, renderQueue)
+	}
+	else if (slotnum == CHARACTER_WECHNIA) // Character selection AFTER Knuckles & Tails, sets new icon sprites
+	{
+		string key = "dataSel_lifeContinue_wechnia" //replace with your sprite
+		Renderer.drawCustomSprite(key, px - 18, py + 0x08, 0x80, SPRITE_FLAG_PRIO, renderQueue)
+	}
+	else
+		base.MISC.drawLifeContSprite(px, py, renderQueue, slotnum)
+}
+
+// Renders your character's sprite in vanilla Data Select
+function void MISC.drawCharSprite(s16 px, s16 py, u16 renderQueue, u8 slotnum)
+{
+	if (slotnum == CHARACTER_ASHURA || slotnum == CHARACTER_BLUCKLES || slotnum == CHARACTER_WECHNIA)
+	{
+		string key = slotnum == CHARACTER_ASHURA ? "dataSel_Ashura" : slotnum == CHARACTER_BLUCKLES ? "dataSel_Bluckles" : "dataSel_Wechnia"  //replace with your char sprite
+			
+		//use this to add a partner if you want. KEEP IN MIND that if you want partners, you need to -6 from your base char's px.
+		//Also, you can render anyone here. just use the correct sprite key in place of tails'
+		if MISC.GetPartner(slotnum + 1) != 0xff //if you don't intend on adding a partner tails, this literally will never be true.
+		{
+			Renderer.drawCustomSprite(key, px-6, py, 0x80, SPRITE_FLAG_PRIO, renderQueue) //The regular char
+			Renderer.drawCustomSprite(getCharacterSelectSpriteKey(CHARACTER_TAILS), px+6, py-18, 0x80, SPRITE_FLAG_PRIO | SPRITE_FLAG_FLIP_X, renderQueue) //Tails (or your partner)
+		}
+		else
+		{
+			Renderer.drawCustomSprite(key, px, py, 0x80, SPRITE_FLAG_PRIO, renderQueue)
+		}
+	}
+	else
+		base.MISC.drawCharSprite(px, py, renderQueue, slotnum)
+}
+
+#if GAMEAPP >= 0x24060180
+
+// Renders your character's sprite in Act Select if you are using a Test Build that has it
+function void MISC.drawActSelCharSprite(s16 px, u8 levelselect.characters)
+{
+	u8 slotnum = levelselect.characters - 1
+	
+	if (slotnum == CHARACTER_ASHURA || slotnum == CHARACTER_BLUCKLES || slotnum == CHARACTER_WECHNIA)
+	{
+		if MISC.GetPartner(levelselect.characters) != 0xff //again, will never be true if you don't set a partner
+			{
+			Renderer.drawSprite(ActSelect.GetCharacterCombinationSprite(levelselect.characters), px - 8, 156, 0, 0x00 | SPRITE_FLAG_FLIP_X, 0xf004) //the regular character
+			string key = MISC.getActSelectPartnerKey(levelselect.characters-1) //remember the partner key you set earlier? Here it is!
+			
+			if (!Renderer.hasCustomSprite(key)) //default to tails as a failsafe
+				key = ActSelect.GetCharacterCombinationSprite(2)
+				
+			Renderer.drawSprite(key, px + 8, 154, 0, SPRITE_FLAG_FLIP_X, 0xf004) //draw partner character
+			}
+		else
+			{
+			Renderer.drawSprite(ActSelect.GetCharacterCombinationSprite(levelselect.characters), px, 156, 0, 0x00, 0xf004)
+			}
+	}
+	else
+		base.MISC.drawActSelCharSprite(px, levelselect.characters)
+}
+
+#endif
+
+// Render portraits for completed saves in vanilla Data Select (contributed by nabbup)
+function string MISC.getClearPortrait(u8 ending, u8 slotnum)
+{
+	// ending represents if they beat the game with all Chaos/Super emeralds or not.
+	// 0: incomplete, 1: without emeralds, 2: all chaos emeralds, 3: all super emeralds
+
+	if ((slotnum != CHARACTER_ASHURA || slotnum != CHARACTER_BLUCKLES || slotnum != CHARACTER_WECHNIA) || ending == 0)
+		return base.MISC.getClearPortrait(ending, slotnum)
+	string key
+	// the following keys are just examples, and can really just be whatever,
+	// however center values for the sprites MUST be "Center": "40,120"
+	if (ending == 1)
+		key = slotnum == CHARACTER_ASHURA ? "dataSel_savePortrait_ashura" : slotnum == CHARACTER_BLUCKLES ? "dataSel_savePortrait_bluckles" : "dataSel_savePortrait_wechnia" 
+	else if (ending == 2)
+		key = slotnum == CHARACTER_ASHURA ? "dataSel_savePortrait_superashura" : slotnum == CHARACTER_BLUCKLES ? "dataSel_savePortrait_superbluckles" : "dataSel_savePortrait_superwechnia" 
+	else if (ending == 3)
+		key = slotnum == CHARACTER_ASHURA ? "dataSel_savePortrait_clear_ashura" : slotnum == CHARACTER_BLUCKLES ? "dataSel_savePortrait_clear_bluckles" : "dataSel_savePortrait_clear_wechnia" 
+	if (Renderer.hasCustomSprite(key))
+		return key
+	return false
+}
+
+// What zones do you want your character to access?
+function u8 MISC.getAllowedZones(u8 slotnum)
+{
+    // add exceptions for your individual character like this:
+    // if (slotnum == CHARACTER_CUSTOM)
+    //    return 0x0d
+	// 
+	// for reference:
+	// 0x0d - Sonic zones (includes doomsday)
+	// 0x0c - Tails zones (excludes doomsday)
+	// 0x0b - Knux zones (ends at ssz)
+	//
+    // return base.MISC.getAllowedZones(slotnum)
+    if (slotnum == CHARACTER_ASHURA || slotnum == CHARACTER_BLUCKLES || slotnum == CHARACTER_WECHNIA)
+	{
+		return 0x0d
+	}
+	return base.MISC.getAllowedZones(slotnum)
+}
+
+define MISC.dataSelBackup = u16[A1 + 0x34]
+
+//Compatibility for accessing FBZ with Useott's Original Zone Order
+function bool UseottOZO.allowFBZWhileSelecting()
+{
+	if (MISC.dataSelBackup != CHARACTER_ASHURA && MISC.dataSelBackup != CHARACTER_BLUCKLES && MISC.dataSelBackup != CHARACTER_WECHNIA)
+		return base.UseottOZO.allowFBZWhileSelecting()
+	return true
+}
+
+function bool UseottOZO.allowFBZForZoneNumbers()
+{
+	u8 slotnum = MISC.GetCharFromString(MISC.GetStringFromSlot(dataselect.slot_selected))
+	if (slotnum != CHARACTER_ASHURA && slotnum != CHARACTER_BLUCKLES && slotnum != CHARACTER_WECHNIA)
+		return base.UseottOZO.allowFBZForZoneNumbers()
+	return true
+}
+
+//For more complex zone order manipulations, return false on the UOZO functions and look at AdvancedFunctions.lemon
+
+// In case you want to change something with the way ESS switches the zone selection
+// D6 handles the maximum, apparently
+function void ESS_switchZoneSelection()
+{
+	u8 slotnum = MISC.GetCharFromString(MISC.GetStringFromSlot(dataselect.slot_selected))
+	if (slotnum == CHARACTER_ASHURA || slotnum == CHARACTER_BLUCKLES || slotnum == CHARACTER_WECHNIA)
+		D6 = MISC.getAllowedZones(slotnum)
+	base.ESS_switchZoneSelection()
+}
+
+// Determines if AI Tails should spawn in levels for transitions e.g. MHZ1 and CNZ1 intros as Sonic
+// this can be useful to edit if your character has a custom method of entering the stage, like a custom intro.
+// for most cases this should be true, unless your char uses knuckles' zones.
+
+function bool SpawnAITails(u8 slotnum)
+{
+	if (slotnum == CHARACTER_ASHURA || slotnum == CHARACTER_BLUCKLES || slotnum == CHARACTER_WECHNIA)//replace with your char number
+		return true //true means tails carries you into cnz and mhz. false means you just fall in.
+	else
+		return base.SpawnAITails(slotnum)
+}
+
+//for more in-depth tweaks to character level transitions, check AdvancedFunctions.lemon
+
+// Chooses pilot for normal scale, in ending
+// For both this and the small one, the Knuckles version of Sonic's head uses a separate palette line
+function void MISC.getPilot(u8 slotnum)
+{
+	if (slotnum != CHARACTER_ASHURA && slotnum != CHARACTER_BLUCKLES && slotnum != CHARACTER_WECHNIA)
+	{
+		base.MISC.getPilot(slotnum)
+		return
+	}
+
+	// For MISC by default: Put Tails into the Tornado
+	fn05eb72()
+
+	// sonic in tornado (tails version)
+	//fn05eb72()
+
+	// alt sonic (knuckles version)
+	//fn05eb9e()
+}
+
+// Chooses pilot for smaller scale
+function u8 MISC.getSmallPilot(u8 slotnum)
+{
+	if (slotnum != CHARACTER_ASHURA && slotnum != CHARACTER_BLUCKLES && slotnum != CHARACTER_WECHNIA)
+		return base.MISC.getSmallPilot(slotnum)
+
+	//use numbers to determine which pilot
+	return 1
+	// 1 - tails
+	// 2 - sonic
+	// 3 - sonic (knuckles' version)
+}
+
+// Change to a sprite key for the smallest version of your character riding the Tornado in the ending
+function string MISC.getMiniChar(u8 slotnum)
+{
+	if (slotnum != CHARACTER_ASHURA && slotnum != CHARACTER_BLUCKLES && slotnum != CHARACTER_WECHNIA)
+		return base.MISC.getMiniChar(slotnum)
+
+	return slotnum == CHARACTER_ASHURA ? "MiniChar_Ashura" : slotnum == CHARACTER_BLUCKLES ? "MiniChar_Bluckles" : "MiniChar_Wechnia"  //replace with your slot
+}
+
+//s3c sound test/level select compatibility
+function bool LevelSelect.innerUpdate()
+{
+	u8 slotnum = levelselect.characters - 1
+	if Mods.isModActive("Sonic 3 Complete Level Select+")
+	{
+		if (slotnum == CHARACTER_ASHURA)
+		{
+			Renderer.drawCustomSprite("s3c_ashura", getScreenExtend() + 255, 115, 0x00, 0, 0x2000) //replace with your sprites
+		}
+		if (slotnum == CHARACTER_BLUCKLES)
+		{
+			Renderer.drawCustomSprite("s3c_bluckles", getScreenExtend() + 255, 115, 0x00, 0, 0x2000) //replace with your sprites
+		}
+		if (slotnum == CHARACTER_WECHNIA)
+		{
+			Renderer.drawCustomSprite("s3c_wechnia", getScreenExtend() + 255, 115, 0x00, 0, 0x2000) //replace with your sprites
+		}
+	}
+	return base.LevelSelect.innerUpdate()
+}
+
+// Best Ending stuff
+// Determines sprite keys for your character in the best ending (shows up alongside the base 3 characters by default)
+function string MISC.getEndLogoSprites(u8 animation)
+{
+	if (global.characters != CHARACTER_ASHURA && global.characters != CHARACTER_BLUCKLES && global.characters != CHARACTER_WECHNIA) // Your character here
+		return base.MISC.getEndLogoSprites(animation)
+	
+	return global.characters == CHARACTER_ASHURA ? stringformat("endlogo_ashura_0x%02x", animation) : global.characters == CHARACTER_BLUCKLES ? stringformat("endlogo_bluckles_0x%02x", animation) : stringformat("endlogo_wechnia_0x%02x", animation)  // Replace char4 with your slot
+}
+
+// for advanced animation timings, look at AdvancedFunctions.lemon
+
+// Changes monitor icons for your character
+function u64 Monitor.getIconSpriteKey(u8 type)
+{
+	if (global.characters != CHARACTER_ASHURA && global.characters != CHARACTER_BLUCKLES && global.characters != CHARACTER_WECHNIA)
+		return base.Monitor.getIconSpriteKey(type)
+		
+	// Any of these can be removed to run through other mods for sprite keys
+	if (type == 0)
+		return "monitor_icon_static"
+	else if (type == 0x01)
+		return global.characters == CHARACTER_ASHURA ? "monitor_icon_ashura" : global.characters == CHARACTER_BLUCKLES ? "monitor_icon_bluckles" : "monitor_icon_wechnia" // just replace this with the key for your character's monitor icon
+	else if (type == 0x02)
+		return "monitor_icon_robotnik"
+	else if (type == 0x03)
+		return "monitor_icon_ring"
+	else if (type == 0x04)
+		return "monitor_icon_speedshoes"
+	else if (type == 0x05)
+		return "monitor_icon_fireshield"
+	else if (type == 0x06)
+		return "monitor_icon_lightningshield"
+	else if (type == 0x07)
+		return "monitor_icon_bubbleshield"
+	else if (type == 0x08)
+		return "monitor_icon_invincibility"
+	else if (type == 0x09)
+		return "monitor_icon_super"
+	else if (type == 0x0b)
+		return "monitor_icon_classicshield"
+
+	return base.Monitor.getIconSpriteKey(type)
+}
+
+// Changes the little fire icon at the end of every line of the score tally for your character
+function string getCharacterBonusTextIcon(u8 character)
+{
+	if (global.characters == CHARACTER_ASHURA)
+		return "hud_bonus_icon_char_ashura"
+	if (global.characters == CHARACTER_BLUCKLES)
+		return "hud_bonus_icon_char_bluckles"
+	if (global.characters == CHARACTER_WECHNIA)
+		return "hud_bonus_icon_char_wechnia"
+	return base.getCharacterBonusTextIcon(character)
+}
+
+// In order to use the hitbox functions below, change the player height in the MISC.GetPlayerHeight() function, and refer to AdvancedFunctions.lemon for more info if you want to edit more stuff.
+// This is already set up in the Special 2nd player addon, and in TAG team, so you could reference the code for that if you want to use these functions.
+
+// Keep in mind that this can cause bugs in some interactions relating to size, because SONIC 3 SUCKS- so you may have to do some debugging after.
+
+function u8 MISC.GetPlayerHeight(u8 character)
+{
+	if (character == CHARACTER_ASHURA || character == CHARACTER_BLUCKLES || character == CHARACTER_WECHNIA)
+	{
+		return char.hitbox.y.UPRIGHT
+	}
+	
+	return base.MISC.GetPlayerHeight(character)
+}
+
+function void MISC.SetCharHitbox(u8 player)
+{
+	if (MISC.player == CHARACTER_ASHURA || MISC.player == CHARACTER_BLUCKLES || MISC.player == CHARACTER_WECHNIA)
+	{
+		//Log = 1
+		u32 A0backup = A0
+		A0 = (player == 1) ? 0xffffb000 : (player == 2) ? 0xffffb04a : (player == 3) ? 0xffffc2ca : 0xffffc314
+		u8 characterHeight = MISC.GetPlayerHeight(MISC.player)
+		char.hitbox.default.x = char.hitbox.x.UPRIGHT
+		char.hitbox.default.y = characterHeight
+		
+		if char.hitbox_extends.x != char.hitbox.x.ROLLING
+		{
+			if (global.zone_act == 0x0300) && checkpoint.number == 0 && SpawnAITails(global.characters) // fix for cnz
+				char.hitbox_extends.y = char.hitbox.y.UPRIGHT
+			else
+				char.hitbox_extends.y = characterHeight
+			char.hitbox_extends.x = char.hitbox.x.UPRIGHT
+		}
+		A0 = A0backup
+		return
+	}
+	
+	base.MISC.SetCharHitbox(player)
+}

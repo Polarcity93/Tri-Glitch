@@ -1,0 +1,1885 @@
+global u8 AshuraTeleportDirection
+global u8 AshuraStateSetBack
+global u8 AshuraBounceDirection
+global u16 AshuraTeleportTimer
+global u8 AshuraIsTeleporting
+constant u8 char.state.ASHURA_BOUNCE = 0x72
+constant u8 char.state.ASHURA_FALLING = 0x73
+global s16 AshuraSpeedX
+global s16 AshuraSpeedY
+global u16 AshuraBounceCount
+global bool AshuraBlockTeleport
+global u16 AshuraBounceTimer
+global bool AshuraWasRolling
+
+function void setSpeedCapProperties(u32 address, bool isSuperActive)
+{
+	if (global.characters == CHARACTER_ASHURA)
+{
+	// Set new max speed cap etc.:
+	//  - u16[address]     = maximum speed			-> e.g. global.move.speedcap
+	//  - u16[address + 2] = maximum acceleration	-> e.g. global.move.acceleration
+	//  - u16[address + 4] = maximum deceleration	-> e.g. global.move.deceleration
+
+	if (char.flags & char.flag.UNDERWATER)
+	{
+		// In water
+	#if STANDALONE
+		if (char.bonus_effect & char.bonus.SPEED_UP)
+		{
+			u16[address] = max(u16[address], 0x600)
+			u16[address + 2] = max(u16[address + 2], 0x0c)
+			u16[address + 4] = max(u16[address + 4], 0x40)
+		}
+		else
+	#endif
+		if (isSuperActive)
+		{
+			if char.bonus_effect & char.bonus.SHIELD_BUBBLE
+			{	
+				u16[address] = 0x9b0
+				u16[address + 2] = 0x2f
+				u16[address + 4] = 0x9f
+			}
+	     	else
+            {
+				u16[address] = 0x900
+				u16[address + 2] = 0x26
+				u16[address + 4] = 0x86
+			}
+		}
+		else
+		{
+			if char.bonus_effect & char.bonus.SHIELD_BUBBLE
+			{	
+				u16[address] = 0x6a0
+				u16[address + 2] = 0x0a
+				u16[address + 4] = 0x60
+			}
+	     	else
+            {
+				u16[address] = 0x600
+				u16[address + 2] = 0x07
+				u16[address + 4] = 0x50
+			}
+		}
+	}
+	else
+	{
+		// Out of water
+	#if STANDALONE
+		if (char.bonus_effect & char.bonus.SPEED_UP)
+		{
+			u16[address] = max(u16[address], 0xc00)
+			u16[address + 2] = max(u16[address + 2], 0x18)
+			u16[address + 4] = max(u16[address + 4], 0x80)
+		}
+		else
+	#endif
+		if (isSuperActive)
+		{
+				u16[address] = 0x100
+				u16[address + 2] = 0x30
+				u16[address + 4] = 0x100
+			#if STANDALONE
+				// Use an acceleration value that makes Super Sonic a bit more controllable
+				u16[address + 2] = 0x20
+			#endif
+		}
+		else
+			{
+			u16[address] = 0x600
+			u16[address + 2] = 0x0c
+			u16[address + 4] = 0x80
+			}
+		}
+	}
+else
+{
+	base.setSpeedCapProperties(address, isSuperActive)
+	return
+}
+}
+
+function void Character.updateUprightOnGround()
+{
+	if (global.characters != CHARACTER_ASHURA)
+	{
+		base.Character.updateUprightOnGround()
+		return
+	}
+	if (char.character == CHARACTER_TAILS)
+		Tails.CheckDropSonic()
+
+	if (Character.UpdateSpindash())
+		return
+
+
+		if (Ashura.updateSnapDash())
+			return
+
+	if (char.double_jump_state == 1 || char.double_jump_state == 2 || char.spindash == 0x80)
+	{
+		UpdateAshuraAirMoves()
+		return
+	}
+
+	if (Character.CheckStartJump())
+		return
+
+	Character.UpdateUprightSlopeEffect()
+	Character.updateUprightOnGroundInner()
+	Character.CheckForStartRolling()
+
+	Character.sharedUpdateOnGround()
+}
+
+function void updateCharacterRollingOnGround()
+{
+	if (global.characters != CHARACTER_ASHURA)
+	{
+		base.updateCharacterRollingOnGround()
+		return
+	}
+	if (char.character == CHARACTER_TAILS)
+		Tails.CheckDropSonic()
+
+	if (char.spindash == 0)
+	{
+		if (Character.CheckStartJump())
+			return
+	}
+     
+	if (Ashura.updateSnapDash())
+			return
+
+
+	if (char.double_jump_state == 1 || char.double_jump_state == 2 || char.spindash == 0x80)
+	{
+		UpdateAshuraAirMoves()
+		return
+	}
+
+	if (AshuraStateSetBack > 0)
+	{
+		if (AshuraStateSetBack == 2)
+		{
+			char.state = AshuraWasRolling == true ? char.state.ROLLING : char.state.ASHURA_FALLING
+			if (char.state == char.state.ROLLING)
+			{
+				char.flags |= char.flag.ROLLING
+			}
+			else (char.state == char.state.ROLLING)
+			{
+				char.flags |= char.flag.ROLLING
+			}
+			char.double_jump_state = 3
+		}
+		else if (AshuraStateSetBack == 3)
+		{
+		char.double_jump_state = 4
+		char.state = char.state.ASHURA_BOUNCE	
+		}
+		else if (AshuraStateSetBack == 4)
+		{
+		char.double_jump_state = 6
+		char.state = char.state.SONIC_DROPDASH	
+		}
+		AshuraStateSetBack = 0
+		AshuraBlockTeleport = true
+	}
+
+
+	Character.UpdateRollingSlopeEffect()
+	updateCharacterControlOnGround()
+	Character.sharedUpdateOnGround()
+}
+
+
+//# address-hook(0x010fb6) end(0x010fde)
+function void Character.UpdateSonicUprightInAir()
+{
+	if (global.characters == CHARACTER_ASHURA && A0 == 0xffffb000)
+	{
+	if (char.jumping == 0 && char.double_jump_state == 0)
+	{
+	Ashura.updateSnapDash()
+	}
+
+	if (char.double_jump_state >= 1 && char.double_jump_state <= 6)
+	{
+		UpdateAshuraAirMoves()
+	}
+	else
+	{
+		base.Character.UpdateSonicUprightInAir()
+	}
+
+	if (AshuraStateSetBack > 0)
+	{
+		if (AshuraStateSetBack == 2)
+		{
+			char.state = AshuraWasRolling == true ? char.state.ROLLING : char.state.ASHURA_FALLING
+			if (char.state == char.state.ROLLING)
+			{
+				char.flags |= char.flag.ROLLING
+			}
+			else (char.state == char.state.ROLLING)
+			{
+				char.flags |= char.flag.ROLLING
+			}
+			char.double_jump_state = 3
+		}
+		else if (AshuraStateSetBack == 3)
+		{
+		char.double_jump_state = 4
+		char.state = char.state.ASHURA_BOUNCE	
+		}
+		else if (AshuraStateSetBack == 4)
+		{
+		char.double_jump_state = 6
+		char.state = char.state.SONIC_DROPDASH	
+		}
+		AshuraStateSetBack = 0
+		AshuraBlockTeleport = true
+	}
+
+}
+else
+{
+	base.Character.UpdateSonicUprightInAir()
+	return
+}
+}
+
+//# address-hook(0x011036) end(0x01105e)
+function void Character.UpdateSonicRollingInAir()
+{
+	if (global.characters != CHARACTER_ASHURA)
+	{
+		base.Character.UpdateSonicRollingInAir()
+		return
+	}
+	if (char.jumping == 0 && char.double_jump_state == 0)
+	{
+	Ashura.updateSnapDash()
+	}
+
+	if (char.double_jump_state >= 1 && char.double_jump_state <= 6)
+	{
+		UpdateAshuraAirMoves()
+	}
+	else
+	{
+	base.Character.UpdateSonicRollingInAir()	
+	}
+
+	if (AshuraStateSetBack > 0)
+	{
+		if (AshuraStateSetBack == 2)
+		{
+			char.double_jump_state = 3
+		}
+		else if (AshuraStateSetBack == 3)
+		{
+		char.double_jump_state = 4
+		char.state = char.state.ASHURA_BOUNCE	
+		}
+		else if (AshuraStateSetBack == 4)
+		{
+		char.double_jump_state = 6
+		char.state = char.state.SONIC_DROPDASH	
+		}
+		AshuraStateSetBack = 0
+		AshuraBlockTeleport = true
+	}
+}
+
+function void UpdateAshuraAirMoves()
+{
+	
+	if (char.double_jump_state == 1) //Teleporting startup + release trigger
+    {
+		if (char.spindash == 0x80)
+		{
+		Character.UpdateControlInAir()
+		UpdateMovementSimple()
+		Character.CheckCollision()
+		++AshuraTeleportTimer
+		{
+			if ((AshuraTeleportTimer < 10))
+			{
+				char.groundspeed = (char.groundspeed < 0) ? char.groundspeed + 0x300 : (char.groundspeed) > 0 ? char.groundspeed - 0x300 : 0
+				char.velocity.x = (char.velocity.x < 0) ? char.velocity.x + 0x300 : (char.velocity.x > 0) ? char.velocity.x - 0x300 : 0
+				char.velocity.y = (char.velocity.y < 0) ? char.velocity.y + 0x300 : (char.velocity.y > 0) ? char.velocity.y - 0x300 : 0
+			}
+			else
+			{
+				releaseSnapDash()
+				AshuraTeleportTimer = 0
+			}
+		}
+		}
+
+		// Center camera y-offset again
+		centerCameraYOffset()
+
+	Character.CheckAgainstMoveBorders()
+	Character.UpdateRotationOnGround()
+	partialUpdateCharacterOnGround()
+
+	}
+
+	else if (char.double_jump_state == 2) //Released Teleport
+	{
+		Character.UpdateControlInAir()
+		UpdateMovementStraight()
+		Character.CheckCollision()
+		Character.CheckAgainstMoveBorders()
+		char.velocity.y += (char.flags & char.flag.UNDERWATER) ? 0x10 : 0x38
+	}
+	
+	else if (char.double_jump_state == 3) //Falling after a teleport or uncurled from bounce
+	{
+		AshuraIsTeleporting = 0
+		// Falling state
+		Character.UpdateControlInAir()
+		UpdateMovementStraightSimple()
+		Character.CheckAgainstMoveBorders()
+		Character.UpdateRotationInAir()
+
+		Character.CheckCollision()	
+		Ashura.updateBounce()
+		Ashura.updateDropDash()
+		char.velocity.y += (char.flags & char.flag.UNDERWATER) ? 0x10 : 0x38
+
+		if (AshuraBlockTeleport == false)
+		{
+			Ashura.updateSnapDash()
+		}
+	}
+
+
+	else if (char.double_jump_state == 4) //Spin Dropping
+	{
+	if (char.spindash == 0x80) //Teleporting startup + release trigger
+    {
+		if (char.spindash == 0x80)
+		{
+		Character.UpdateControlInAir()
+		UpdateMovementStraight()
+		Character.CheckCollision()
+		++AshuraTeleportTimer
+		{
+			if ((AshuraTeleportTimer < 10))
+			{
+				char.groundspeed = (char.groundspeed < 0) ? char.groundspeed + 0x300 : (char.groundspeed) > 0 ? char.groundspeed - 0x300 : 0
+				char.velocity.x = (char.velocity.x < 0) ? char.velocity.x + 0x300 : (char.velocity.x > 0) ? char.velocity.x - 0x300 : 0
+				char.velocity.y = (char.velocity.y < 0) ? char.velocity.y + 0x300 : (char.velocity.y > 0) ? char.velocity.y - 0x300 : 0
+			}
+			else
+			{
+				releaseSnapDash()
+				AshuraTeleportTimer = 0
+			}
+		}
+		}
+
+		// Center camera y-offset again
+		centerCameraYOffset()
+
+	Character.CheckAgainstMoveBorders()
+	Character.UpdateRotationOnGround()
+	partialUpdateCharacterOnGround()
+
+	}
+	else
+	{
+		Character.UpdateControlInAir()
+		UpdateMovementStraight()
+		Ashura.updateDropDash()
+		Character.CheckCollision()
+		Character.UpdateRotationInAir()	
+		char.velocity.y += (char.flags & char.flag.UNDERWATER) ? 0x10 : 0x38
+
+	if (AshuraBlockTeleport == false)
+		{
+			Ashura.updateSnapDash()
+		}
+
+	}
+	}
+	else if (char.double_jump_state == 5) //Bouncing back up
+	{
+		++AshuraBounceTimer
+	Character.UpdateControlInAir()
+	UpdateMovementStraightSimple()
+	Ashura.updateBounce()
+	Ashura.updateDropDash()
+	Character.CheckCollision()
+	Character.UpdateRotationInAir()	
+	char.velocity.y += (char.flags & char.flag.UNDERWATER) ? 0x10 : 0x38
+
+	if (AshuraBounceTimer >= 30)
+	{
+		AshuraBounceTimer = 0
+		char.double_jump_state = 3
+	}
+	}
+
+	else if (char.double_jump_state == 6) //Dropdashing
+	{
+		if (char.spindash == 0x80) //Teleporting startup + release trigger
+    {
+		if (char.spindash == 0x80)
+		{
+		Character.UpdateControlInAir()
+		UpdateMovementStraightSimple()
+		++AshuraTeleportTimer
+		{
+				if ((AshuraTeleportTimer < 10))
+			{
+				char.groundspeed = (char.groundspeed < 0) ? char.groundspeed + 0x300 : (char.groundspeed) > 0 ? char.groundspeed - 0x300 : 0
+				char.velocity.x = (char.velocity.x < 0) ? char.velocity.x + 0x300 : (char.velocity.x > 0) ? char.velocity.x - 0x300 : 0
+				char.velocity.y = (char.velocity.y < 0) ? char.velocity.y + 0x300 : (char.velocity.y > 0) ? char.velocity.y - 0x300 : 0
+			}
+			else
+			{
+				releaseSnapDash()
+				AshuraTeleportTimer = 0
+			}
+		}
+		}
+
+		// Center camera y-offset again
+		centerCameraYOffset()
+
+	Character.CheckAgainstMoveBorders()
+	Character.UpdateRotationOnGround()
+	partialUpdateCharacterOnGround()
+
+	}
+	else
+	{
+	Character.UpdateControlInAir()
+	UpdateMovementStraightSimple()
+	Character.CheckCollision()
+	Character.UpdateRotationInAir()
+	char.velocity.y += (char.flags & char.flag.UNDERWATER) ? 0x10 : 0x38
+
+	if (AshuraBlockTeleport == false)
+		{
+			Ashura.updateSnapDash()
+		}	
+	}
+	}
+}
+
+function void Ashura.updateBounce()
+{
+	if ((control.player1.pressed & CONTROL_A) || (control.player1.pressed & CONTROL_C) && ((control.player1.state & CONTROL_UP) == 0))
+	{
+							 playSound(SFX_BUBBLEBOUNCE)
+						   char.flags &= ~char.flag.ROLLING
+                           char.state = char.state.ASHURA_BOUNCE
+						   char.double_jump_state = 4
+							 char.velocity.y = AshuraBounceCount == 2 ? 0xa00 : AshuraBounceCount == 1 ? 0x900 : 0x800
+							 if (control.player1.state & CONTROL_RIGHT)
+							 {
+								AshuraBounceDirection = 6
+							 }	
+							 else if  (control.player1.state & CONTROL_LEFT)	
+							 {
+								AshuraBounceDirection = 7
+							 }	
+							 else
+							 {
+								AshuraBounceDirection = 8
+								char.velocity.x = 0
+							 }
+						   if (super.active == 0xff)
+	                       {
+                           Character.ClearEnemiesOnScreen()
+	                       global.whiteflash_timeout = 4
+	                       camera.locktime.player1 = 0x2000
+	                       ClearPositionBackup()
+	                        }
+						}
+	}
+
+function bool Ashura.updateSnapDash()
+{
+	u8 input_state   = control.player1.state
+	u8 input_pressed = control.player1.pressed
+	u8 input = input_state = CONTROL_DPAD
+
+	if (char.spindash == 0)
+	{
+		bool canStartPeelout = (input_pressed & CONTROL_B) && char.spindash == 0 && isViableSpeed() && (player1.control_override == 0 && AshuraBlockTeleport == false)	// Last check is needed in cutscenes (e.g. end of MHZ 2)
+		if (!canStartPeelout)
+		{
+			// Nothing to see here
+			return false
+		}
+		AshuraWasRolling = char.state = char.state.ROLLING ? true : false
+        char.double_jump_state = char.state == char.state.SONIC_DROPDASH ? 6 : char.state == char.state.ASHURA_BOUNCE ? 4 : 1
+		AshuraSpeedY = abs(char.velocity.y)
+		AshuraSpeedX = (char.flags & char.flag.IN_AIR) == 0 ? abs(char.groundspeed) : abs(char.velocity.x)
+		char.state = char.state.DISAPPEARED
+		char.spindash = 0x80
+		char.spindash_charge = 0
+		if (char.double_jump_state == 4)
+		{
+          if (AshuraBounceDirection == 6)
+		  {
+			AshuraTeleportDirection = 6
+		  }
+		  else if (AshuraTeleportDirection == 7)
+		  {
+			AshuraTeleportDirection = 7
+		  }
+		  else
+		  {
+			AshuraTeleportDirection = 8
+		  }
+		}
+		else
+		{
+			 if (input != 0)
+			{
+		    if (control.player1.state & CONTROL_UP)
+			{
+			if (control.player1.state & CONTROL_RIGHT)
+			{
+			AshuraTeleportDirection = 1
+			}
+			else if (control.player1.state & CONTROL_LEFT)
+			{
+			AshuraTeleportDirection = 2
+			}
+			else
+			{
+			AshuraTeleportDirection = 3
+			}
+			}
+			else if (control.player1.state & CONTROL_DOWN)
+			{
+			if (control.player1.state & CONTROL_RIGHT)
+			{
+			AshuraTeleportDirection = 6
+			}
+			else if (control.player1.state & CONTROL_LEFT)
+			{
+			AshuraTeleportDirection = 7
+			}
+			else
+			{
+			AshuraTeleportDirection = 8
+			}
+			}
+			else if (control.player1.state & CONTROL_RIGHT)
+			{
+				AshuraTeleportDirection = 4
+			}
+			else if (control.player1.state & CONTROL_LEFT)
+			{
+				AshuraTeleportDirection = 5
+			}
+			}
+		}
+
+
+	}
+	else
+	{
+		if (char.spindash == 0x80) //Teleporting startup + release trigger
+    {
+		++AshuraTeleportTimer
+		{
+				if ((AshuraTeleportTimer < 10))
+			{
+				char.groundspeed = (char.groundspeed < 0) ? char.groundspeed + 0x300 : (char.groundspeed) > 0 ? char.groundspeed - 0x300 : 0
+				char.velocity.x = (char.velocity.x < 0) ? char.velocity.x + 0x300 : (char.velocity.x > 0) ? char.velocity.x - 0x300 : 0
+				char.velocity.y = (char.velocity.y < 0) ? char.velocity.y + 0x300 : (char.velocity.y > 0) ? char.velocity.y - 0x300 : 0
+			}
+			else
+			{
+				releaseSnapDash()
+				AshuraTeleportTimer = 0
+			}
+		}
+
+		// Center camera y-offset again
+		centerCameraYOffset()
+     UpdateMovementStraight()
+	Character.CheckAgainstMoveBorders()
+	Character.UpdateRotationOnGround()
+	partialUpdateCharacterOnGround()
+
+	}
+	}
+	 UpdateMovementStraight()
+	Character.CheckAgainstMoveBorders()
+	Character.UpdateRotationOnGround()
+	partialUpdateCharacterOnGround()
+
+	return true
+}
+
+function void Ashura.updateDropDash()
+{
+//Dropdash Input
+        if (control.player1.pressed & CONTROL_DOWN)
+		{
+          char.double_jump_state = 6
+		  char.state = char.state.SONIC_DROPDASH
+		  Audio.playAudio("dropdash_charge", AudioContext.CONTEXT_SOUND)
+		  char.flags |= char.flag.ROLLING
+		  char.jumping = 0
+		}
+}
+
+//# address-hook(0x011eec) end(0x011fd4)
+//# translated(0x012012) end(0x01209c)
+//# translated(0x01209e) end(0x012100)
+//# translated(0x012102) end(0x012170)
+//# address-hook(0x0153c2) end(0x01560a)
+function void Character.CheckCollision()
+{
+	if !(global.characters == CHARACTER_ASHURA && ((char.double_jump_state == 4) || char.double_jump_state == 6))
+	{
+		base.Character.CheckCollision()
+		return
+	}
+    bool someFlag = (char.character == CHARACTER_TAILS) ? level.HCZ_water_current_flags.tails : level.HCZ_water_current_flags.player1
+
+	u32[0xfffff796] = (char.layer_flags1 == 0x0c) ? u32[0xfffff7b4] : u32[0xfffff7b8]
+
+	D5.u8 = char.layer_flags2
+	D0.u16 = lookupAngleByVector(char.velocity.x, char.velocity.y)
+	D0.u8 = (D0.u8 - 0x20) & 0xc0
+	if (D0.u8 == 0)
+	{
+		Character.CheckLeftWallCollision()
+		if (D1.s16 < 0)
+		{
+			A1 = 0xffffb000
+	        objA1.position.x.u16 -= D1.u16
+			Ashura.BounceUpLeftWall()
+		}
+
+		Character.CheckRightWallCollision()
+		if (D1.s16 < 0)
+		{
+			A1 = 0xffffb000
+            objA1.position.x.u16 += D1.u16
+			Ashura.BounceUpRightWall()
+		}
+
+		Character.CheckFloorCollision()
+		if (D1.s16 < 0)
+		{
+			D2.u8 = (char.velocity.y >> 8) + 8
+			D2.s8 = -D2.s8
+			if (D0.s8 < D2.s8 && D1.s8 < D2.s8)
+				return
+
+			char.rotation = D3.u8
+			char.position.y.u16 += global.inv_gravity ? -D1.s16 : D1.s16
+
+			if (((D3.u8 + 0x20) & 0x40) == 0)
+			{
+				if (((D3.u8 + 0x10) & 0x20) == 0)
+				{
+					Character.LandingOnGroundResetState()
+					return
+				}
+				else
+				{
+					Character.LandingOnGroundResetState()
+					return
+				}
+			}
+			else
+			{
+				Character.LandingOnGroundResetState()
+					return
+			}
+
+			Character.LandingOnGroundResetState()
+			return
+		}
+	}
+	else if (D0.u8 == 0x40)
+	{
+		Character.CheckLeftWallCollision()
+		if (D1.s16 < 0)
+		{
+			A1 = 0xffffb000
+	        objA1.position.x.u16 -= D1.u16
+			Ashura.BounceUpLeftWall()
+		}
+
+		Character.CheckCeilingCollision()
+		if (D1.s16 < 0)
+		{
+			D1.s16 = -D1.s16
+			if (D1.s16 < 0x14)
+			{
+				if (global.inv_gravity)
+					D1.s16 = -D1.s16
+
+				char.position.y.u16 += D1.u16
+				char.velocity.y = max(char.velocity.y, 0)
+			}
+			else
+			{
+				Character.CheckRightWallCollision()
+				if (D1.s16 < 0)
+				{
+					A1 = 0xffffb000
+                    objA1.position.x.u16 -= D1.u16
+					Ashura.BounceUpRightWall()
+				}
+			}
+		}
+		else
+		{
+			if (someFlag || char.velocity.y >= 0)
+			{
+				Character.CheckFloorCollision()
+				if (D1.s16 < 0)
+				{
+					char.position.y.u16 += global.inv_gravity ? -D1.s16 : D1.s16
+					char.rotation = D3.u8
+					Character.LandingOnGroundResetState()
+				}
+			}
+		}
+	}
+	else if (D0.u8 == 0x80)
+	{
+		Character.CheckLeftWallCollision()
+		if (D1.s16 < 0)
+		{
+			A1 = 0xffffb000
+	        objA1.position.x.u16 -= D1.u16
+			Ashura.BounceUpLeftWall()
+		}
+
+		Character.CheckRightWallCollision()
+		if (D1.s16 < 0)
+		{
+			A1 = 0xffffb000
+            objA1.position.x.u16 += D1.u16
+			Ashura.BounceUpRightWall()
+		}
+
+		Character.CheckCeilingCollision()
+		if (D1.s16 < 0)
+		{
+			if (global.inv_gravity)
+				D1.s16 = -D1.s16
+
+			char.position.y.u16 -= D1.u16
+			if (((D3.u8 + 0x20) & 0x40) == 0)
+			{
+				char.velocity.y = 0
+			}
+			else
+			{
+				char.rotation = D3.u8
+				Character.LandingOnGround()
+
+				char.groundspeed = char.velocity.y
+				if (D3.s8 < 0)
+					char.groundspeed = -char.groundspeed
+			}
+		}
+	}
+	else	// (D0.u8 == 0xc0)
+	{
+		Character.CheckRightWallCollision()
+		if (D1.s16 < 0)
+		{
+			A1 = 0xffffb000
+            objA1.position.x.u16 += D1.u16
+			Ashura.BounceUpRightWall()
+		}
+
+		Character.CheckCeilingCollision()
+		if (D1.s16 < 0)
+		{
+			char.position.y.u16 -= global.inv_gravity ? -D1.s16 : D1.s16
+			char.velocity.y = max(char.velocity.y, 0)
+		}
+		else
+		{
+			if (someFlag || char.velocity.y >= 0)
+			{
+				Character.CheckFloorCollision()
+				if (D1.s16 < 0)
+				{
+					char.position.y.u16 += global.inv_gravity ? -D1.s16 : D1.s16
+					char.rotation = D3.u8
+					Character.LandingOnGroundResetState()
+				}
+			}
+		}
+	}
+}
+
+
+
+function void Ashura.BounceUpRightWall()
+{
+	A1 = 0xffffb000
+	if (AshuraBounceDirection == 8 || char.double_jump_state == 6)
+	{
+		objA1.velocity.x = 0
+	}
+	else
+	{
+    objA1.flags2a ^= char.flag.FACING_LEFT
+	objA1.velocity.x = AshuraIsTeleporting == 1 ? -abs(char.velocity.x) : AshuraBounceCount == 2 ? -0xa00 : AshuraBounceCount == 1 ? -0x900 : -0x800
+	objA1.velocity.y = AshuraIsTeleporting == 1 ? -abs(char.velocity.y) : AshuraBounceCount == 2 ? -0xa00 : AshuraBounceCount == 1 ? -0x900 : -0x800
+	objA1.state = char.state.ROLLING
+	objA1.flags2a |= (char.flag.IN_AIR | char.flag.ROLLING)
+	u8[A1 + 0x40] = 1
+	u8[A1 + 0x2f] = 5
+	u8[A1 + 0x3c] = 0
+	objA1.flags2a &= ~char.flag.PUSHING
+	objA1.hitbox_extends.x = char.hitbox.x.ROLLING
+	objA1.hitbox_extends.y = char.hitbox.y.ROLLING
+	playSound(SFX_BUBBLEBOUNCE)
+	AshuraBounceDirection = 0
+	AshuraBounceTimer = 0
+	}
+
+}
+
+function void Ashura.BounceUpLeftWall()
+{
+	A1 = 0xffffb000
+	if (AshuraBounceDirection == 8 || char.double_jump_state == 6)
+	{
+		objA1.velocity.x = 0
+	}
+	else
+	{ 
+    objA1.flags2a ^= char.flag.FACING_LEFT
+	objA1.velocity.x = AshuraIsTeleporting == 1 ? abs(char.velocity.x) : AshuraBounceCount == 2 ? 0xa00 : AshuraBounceCount == 1 ? 0x900 : 0x800
+	objA1.velocity.y = AshuraIsTeleporting == 1 ? -abs(char.velocity.y) : AshuraBounceCount == 2 ? -0xa00 : AshuraBounceCount == 1 ? -0x900 : -0x800
+	objA1.state = char.state.ROLLING
+	objA1.flags2a |= (char.flag.IN_AIR | char.flag.ROLLING)
+	u8[A1 + 0x40] = 1
+	u8[A1 + 0x2f] = 5
+	u8[A1 + 0x3c] = 0
+	objA1.flags2a &= ~char.flag.PUSHING
+	objA1.hitbox_extends.x = char.hitbox.x.ROLLING
+	objA1.hitbox_extends.y = char.hitbox.y.ROLLING
+	playSound(SFX_BUBBLEBOUNCE)
+	AshuraBounceDirection = 0
+	AshuraBounceTimer = 0
+	}
+
+}
+
+function void fn01e006()
+{
+	if !(global.characters == CHARACTER_ASHURA)
+	{
+		base.fn01e006()
+		return
+	}
+   if (AshuraIsTeleporting)
+   {
+	return
+   }
+   else if (AshuraBounceDirection == 6 || AshuraBounceDirection == 7)
+   {
+	if (u8[A1 + 0x05] >= base_state.DIED || debug_mode.state != 0)
+	{
+		D4 = 0
+		return
+	}
+
+	// D0.u16 is the character's x-offset relative to the object's collision box (left border)
+	// D1.u16 is the object collision box half width
+	D5.u16 = D0.u16
+	if (D0.u16 > D1.u16)
+	{
+		D0.u16 -= D1.u16 * 2
+		D5.s16 = -D0.s16
+	}
+
+	// D3.u16 is the character's y-offset relative to the object's collision box (top border)
+	// D2.u16 is the object collision box half height, I guess... but it seems to change whether the character is rolled or not
+	D1.u16 = D3.u16
+	if (D3.u16 > D2.u16)
+	{
+		D3.u16 -= D4.u16 + 4
+		D1.s16 = -D3.s16
+	}
+
+	if (D1.u16 >= D5.u16 && D1.u16 > 4)
+	{
+		// Blocked by the object
+		if (AshuraBounceDirection == 6)
+		{
+			Ashura.BounceUpRightWall()
+		}
+		else
+		{
+			Ashura.BounceUpLeftWall()
+		}
+	}
+	else if (D3.s16 >= 0)
+	{
+		if (D3.u16 < 0x10)
+		{
+		// 0x01e154:
+			D3.u16 -= 4
+			D2.u16 = objA0.box_size.x * 2
+			D1.s16 = objA1.position.x.u16 - objA0.position.x.u16 + objA0.box_size.x
+			if (D1.s16 >= 0 && D1.u16 < D2.u16)
+			{
+				if (global.inv_gravity)
+				{
+					D3.s16 = -D3.s16
+					++objA1.position.y.u16
+				}
+				else
+				{
+					--objA1.position.y.u16
+				}
+
+				objA1.position.y.u16 -= D3.u16
+				if (objA1.velocity.y >= 0)
+				{
+					LetSonicClimbOnObject()
+					D6 |= (u32(1) << (D6.u16 + 17))
+					D4 = 0xffffffff
+					return
+				}
+			}
+			D4 = 0
+		}
+		else
+		{
+			fn01e0a2()
+		}
+	}
+	else
+	{
+		if ((objA1.flags2a & char.flag.IN_AIR) == 0)
+		{
+			if (objA1.velocity.y == 0)
+			{
+				if (abs(D0.s16) < 0x10)
+				{
+					// Blocked by the object
+					fn01e042()
+				}
+				else
+				{
+				#if STANDALONE
+					// Fix ceiling run crush, e.g. occasional crush death by HCZ 2's first rotating pillar, fix #contributed by Elsie The Pict
+					if (objA1.value26 != 0x80)
+				#endif
+					{
+						// Getting crushed
+						u32 backupA0 = A0
+						A0 = A1
+						Character.Die()
+						A0 = backupA0
+
+						D6 |= (u32(1) << (D6.u16 + 15))
+						D4 = 0xfffffffe
+					}
+				}
+				return
+			}
+			else
+			{
+				if (objA1.velocity.y > 0 || D3.s16 >= 0)
+				{
+					fn01e10e()
+					return
+				}
+			}
+		}
+		else
+		{
+			u16[A1 + 0x1c] = 0
+		}
+
+		if (global.inv_gravity)
+			D3.s16 = -D3.s16
+
+		objA1.position.y.u16 -= D3.u16
+		objA1.velocity.y = 0
+
+		fn01e10e()
+	}
+}
+else
+{
+	base.fn01e006()
+	return
+}
+}
+
+
+//Higher jump for Ashura underwater, and don't allow jumping with B if you're able to teleport
+//# translated(0x0117da) end(0x0118ba)
+//# translated(0x015002) end(0x0150d8)
+//# translated(0x017710) end(0x0177e8)
+function bool Character.CheckStartJump()
+{
+	if (global.characters == CHARACTER_ASHURA)
+{
+	u8 input_pressed = (A0 == 0xffffb04a) ? control.tails.pressed : control.player1.pressed
+	if (input_pressed & CONTROL_A || input_pressed & CONTROL_C || (input_pressed & CONTROL_B && !isViableSpeed())) == 0
+		return false
+
+	D0 = char.rotation
+	if (global.inv_gravity)
+	{
+		D0.s8 = -D0.s8
+	}
+	else
+	{
+		D0.s8 += 0x80
+	}
+
+	pushA456()
+	fn00f72e()
+	popA456()
+
+	if (D1.s16 < 6)
+		return false
+
+	// Get jump acceleration depending on character, state, and active shield
+	u16 acceleration
+	if (char.flags & char.flag.UNDERWATER)
+	{
+			acceleration = super.active ? 0x550 : 0x450
+	}
+	else
+	{
+	acceleration = super.active ? 0x800 : 0x680	
+	}
+
+	u8 angle = char.rotation - 0x40
+	s32 accel_x = (s32(lookupCos(angle)) * acceleration) >> 8
+	s32 accel_y = (s32(lookupSin(angle)) * acceleration) >> 8
+
+	char.velocity.x += accel_x
+	char.velocity.y += accel_y
+
+	char.flags |= char.flag.IN_AIR
+	char.flags &= ~char.flag.PUSHING
+
+	char.jumping = 1
+	char.on_convex_surface = 0
+
+	playSound(SFX_JUMP)
+
+	// Start roll jump
+	if (char.flags & char.flag.ROLLING)
+	{
+	#if STANDALONE
+		if (!Game.getSetting(SETTING_NO_CONTROL_LOCK))
+	#endif
+		{
+			char.hitbox_extends.x = char.hitbox.default.x
+			char.hitbox_extends.y = char.hitbox.default.y
+			char.flags |= char.flag.CONTROL_LOCK
+		}
+	}
+	else
+	{
+		char.hitbox_extends.x = char.hitbox.x.ROLLING
+		char.hitbox_extends.y = char.hitbox.y.ROLLING
+		char.flags |= char.flag.ROLLING
+		char.state = char.state.ROLLING
+
+		s8 dy = s8(char.hitbox_extends.y) - s8(char.hitbox.default.y)
+		char.position.y.u16 += global.inv_gravity ? dy : -dy
+
+	#if STANDALONE
+		// Glitch fix for Knuckles being unable to jump off underwater objects
+		//  -> Move him up a single pixel up so he won't stick to objects
+		// TODO: Does not work for the HCZ snake platforms
+		if (acceleration <= 0x300 && (char.flags & char.flag.ON_OBJECT))
+		{
+			--char.position.y.u16
+		}
+	#endif
+	}
+	return true
+}
+else
+{
+	return base.Character.CheckStartJump()
+}
+}
+
+
+
+function bool isViableSpeed()
+{
+bool isviable 
+
+if (char.velocity.y != 0 && (abs(char.velocity.x) >= 0x500 || -abs(char.velocity.x) <= -0x500))
+{
+	isviable = true
+}
+else if (char.velocity.y != 0 && (char.velocity.y >= 0x500 || char.velocity.y <= -0x500))
+{
+	isviable = true
+}
+else if (char.groundspeed != 0 && (char.groundspeed >= 0x500 && char.groundspeed <= 0xa00) || (char.groundspeed <= -0x500 && char.groundspeed >= -0xa00))
+{
+	isviable = true
+}
+else
+{
+	isviable = false
+}
+
+return isviable
+}
+
+function void releaseSnapDash()
+{
+	// Release the Teleport
+	char.state = char.state.DISAPPEARED
+	char.spindash = 0
+	char.groundspeed = abs(AshuraSpeedX)
+	char.velocity.x = abs(AshuraSpeedX)
+    char.velocity.y = abs(AshuraSpeedY)
+
+	D0.u16 = max(char.groundspeed - 0x800, 0) * 2
+	D0.u16 = 0x2000 - (D0.u16 & 0x1f00)
+	AshuraIsTeleporting = 1
+
+	// Camera delay
+	if (A0 == 0xffffb000)
+	{
+		// This does not hurt
+		ClearPositionBackup()
+		camera.locktime.player1 = D0.u16
+	}
+	else
+	{
+		camera.locktime.player2 = D0.u16
+	}
+      if (AshuraTeleportDirection > 0)
+			{
+			if (AshuraTeleportDirection == 1)
+			{
+			char.velocity.x = abs(AshuraSpeedX) + 0x100
+			char.velocity.y = -abs(AshuraSpeedY) - 0x100
+			char.flags |= (char.flag.IN_AIR | char.flag.ROLLING)
+	char.flags &= ~char.flag.PUSHING
+	char.on_convex_surface = 0
+	if (char.double_jump_state <= 3)
+	{
+	char.double_jump_state = 2
+	}
+	char.groundspeed = 0
+			}
+			else if (AshuraTeleportDirection == 2)
+			{
+			char.velocity.x = -abs(AshuraSpeedX) + 0x100
+			char.velocity.y = -abs(AshuraSpeedY) - 0x100
+			char.flags |= (char.flag.IN_AIR | char.flag.ROLLING)
+	char.flags &= ~char.flag.PUSHING
+	char.on_convex_surface = 0
+	if (char.double_jump_state <= 3)
+	{
+	char.double_jump_state = 2
+	}
+	char.groundspeed = 0
+			}
+			else if (AshuraTeleportDirection == 3)
+			{
+			char.velocity.x = 0
+			char.velocity.y = -abs(AshuraSpeedY) - 0x100
+			char.flags |= (char.flag.IN_AIR | char.flag.ROLLING)
+	char.flags &= ~char.flag.PUSHING
+	char.on_convex_surface = 0
+	if (char.double_jump_state <= 3)
+	{
+	char.double_jump_state = 2
+	}
+	char.groundspeed = 0
+			}
+			else if (AshuraTeleportDirection == 6)
+			{
+			char.velocity.x = abs(AshuraSpeedX) + 0x100
+			char.velocity.y = abs(AshuraSpeedY) + 0x100
+			char.flags |= (char.flag.IN_AIR | char.flag.ROLLING)
+	char.flags &= ~char.flag.PUSHING
+	char.on_convex_surface = 0
+	if (char.double_jump_state <= 3)
+	{
+	char.double_jump_state = 2
+	}
+	char.groundspeed = 0
+			}
+			else if (AshuraTeleportDirection == 7)
+			{
+			char.velocity.x = -abs(AshuraSpeedX) - 0x100
+			char.velocity.y = abs(AshuraSpeedY) + 0x100
+			char.flags |= (char.flag.IN_AIR | char.flag.ROLLING)
+	char.flags &= ~char.flag.PUSHING
+	char.on_convex_surface = 0
+	if (char.double_jump_state <= 3)
+	{
+	char.double_jump_state = 2
+	}
+	char.groundspeed = 0
+			}
+			else if (AshuraTeleportDirection == 8)
+			{
+				char.velocity.x = 0
+				char.velocity.y = abs(AshuraSpeedY) + 0x100
+			char.flags |= (char.flag.IN_AIR | char.flag.ROLLING)
+	char.flags &= ~char.flag.PUSHING
+	char.on_convex_surface = 0
+	if (char.double_jump_state <= 3)
+	{
+	char.double_jump_state = 2
+	}
+	char.groundspeed = 0
+			}
+			else if (AshuraTeleportDirection == 4)
+			{
+			 		char.velocity.x = abs(AshuraSpeedX) + 0x100
+			char.velocity.y = 0
+			char.flags |= (char.flag.IN_AIR | char.flag.ROLLING)
+	char.flags &= ~char.flag.PUSHING
+	char.on_convex_surface = 0
+    if (char.double_jump_state <= 3)
+	{
+	char.double_jump_state = 2
+	}
+	char.groundspeed = 0
+			}
+			else if (AshuraTeleportDirection == 5)
+			{
+					char.velocity.x = -abs(AshuraSpeedX) - 0x100
+			char.velocity.y = 0
+			char.flags |= (char.flag.IN_AIR | char.flag.ROLLING)
+	char.flags &= ~char.flag.PUSHING
+	char.on_convex_surface = 0
+	if (char.double_jump_state <= 3)
+	{
+	char.double_jump_state = 2
+	}
+	char.groundspeed = 0
+			}
+			}
+	u8[0xffffcce8 + 0x20] = 1
+
+
+	getSound()
+	Input.setControllerRumbleByAddress(A0, 0.0f, 1.0f, 150)
+}
+
+
+function void getSound()
+{
+	playSound(0xb3)
+	if (char.bonus_effect & char.bonus.SHIELD_LIGHTNING)
+	{
+		playSound(SFX_LIGHTNINGJUMP)
+	}
+	else if (char.bonus_effect & char.bonus.SHIELD_FIRE)
+	{
+		playSound(SFX_FIRESHIELDDASH)
+	}
+	else if (char.bonus_effect & char.bonus.SHIELD_BUBBLE)
+	{
+		playSound(SFX_BUBBLEBOUNCE)
+	}
+	else
+	{
+		playSound(SFX_INSTASHIELD)
+	}
+}
+
+//# address-hook(0x01e490)
+function void LetSonicClimbOnObject()
+{
+	if (global.characters == CHARACTER_ASHURA && AshuraBounceDirection >= 6)
+{
+	u8 bit = (1 << D6.u8)
+
+	// Already on another object?
+	if (objA1.flags2a & char.flag.ON_OBJECT)
+	{
+		// Unregister there
+		A3 = 0xffff0000 + u16[A1 + 0x42]
+		u8[A3 + 0x2a] &= ~bit
+	}
+
+	// Standing on this object now
+	u16[A1 + 0x42] = A0.u16
+	u8[A1 + 0x26] = 0
+	objA1.flags2a |= char.flag.ON_OBJECT
+
+	objA0.flags2a |= bit
+	if (objA1.flags2a & char.flag.IN_AIR)
+	{
+		objA1.flags2a &= ~char.flag.IN_AIR
+		u32 backupA0 = A0
+		A0 = A1
+		Character.LandingOnGroundNoSpindash()
+		A0 = backupA0
+	}
+}
+else
+	{
+		base.LetSonicClimbOnObject()
+		return
+	}
+}
+
+function void Character.updateJumpMoves()
+{
+	if (global.characters != CHARACTER_ASHURA)
+	{
+		base.Character.updateJumpMoves()
+		return
+	}
+	u8 input_state     = (char.character == CHARACTER_TAILS) ? control.tails.state   : control.player1.state
+	u8 input_pressed   = (char.character == CHARACTER_TAILS) ? control.tails.pressed : control.player1.pressed
+	u8 input = input_state & CONTROL_DPAD
+	bool isSuperActive = (char.character == CHARACTER_TAILS) ? super.active.tails    : super.active
+
+	if (char.jumping)
+	{
+		// Limit velocity.y
+		s16 max_vy = (char.flags & char.flag.UNDERWATER) ? -0x200 : -0x400
+		if (char.velocity.y < max_vy)
+		{
+			// Limit vertical velocity while not pressing any jump button
+			//  -> This is important to support low jumps by just tapping the button briefly
+			if ((input_state & CONTROL_ABC) == 0)
+			{
+				char.velocity.y = max_vy
+			}
+		}
+		else
+		{
+			if (char.double_jump_state == 0)
+			{
+				#if STANDALONE
+					if (Input.buttonPressed(BUTTON_Y))
+					{
+						if (!isSuperActive && char.invuln.countdown == 0)	// Check invulnerability to prevent spamming of super activate + cancel
+						{
+							if (Character.performSuperTransformation())
+								return
+						}
+					}
+				#endif
+
+				// Check if pressed jump again in mid-air
+				if (input_pressed & CONTROL_ABC)
+				{
+				#if STANDALONE
+					// Check for other things to do instead of the usual reaction to jump button pressed
+					if (onCharacterPressedJumpInMidAir(input_state, input_pressed))
+				#endif
+		              Ashura.updateBounce()
+				}
+			}
+		}
+	}
+	else
+	{
+		if (char.spindash == 0)
+		{
+			char.velocity.y = max(char.velocity.y, -0x0fc0)
+		}
+	}
+}
+
+function void Character.LandingOnGroundResetState()
+{
+ if (global.characters == CHARACTER_ASHURA)
+{
+	char.flags &= ~char.flag.IN_AIR
+	char.flags &= ~char.flag.PUSHING
+	char.flags &= ~char.flag.CONTROL_LOCK
+	char.jumping = 0
+	score.bonus_counter = 0		// No more increasing bonusses after hitting the ground
+	char.rotation.x = 0
+	u8[A0 + 0x2d] = 0
+	u8[A0 + 0x30] = 0
+	char.look_up_down_timer = 0
+     
+	// Check for double jump state
+	if (char.double_jump_state != 0)
+	{
+	 if (char.double_jump_state == 6)
+		{
+			releaseDropDash()
+			
+		}
+		else if (char.double_jump_state == 4)
+		{
+			AshuraBounce()
+		}
+	else
+	{
+      AshuraBounceCount = 0
+		char.double_jump_state = 0
+		AshuraBlockTeleport = false
+	}
+	}
+	else if (char.double_jump_state == 0)
+	{
+		AshuraBounceCount = 0
+	}
+	
+	// Check for Knuckles gliding/falling/standup state
+	if (char.character == CHARACTER_KNUCKLES && char.state >= 0x20)
+	{
+		char.state = char.state.RUNNING
+	}
+}
+else
+ {
+ base.Character.LandingOnGroundResetState()
+ return
+ }
+}
+function void AshuraBounce()
+{
+			u16 force = AshuraIsTeleporting == 1 ? abs(char.velocity.y) : AshuraBounceCount == 2 ? 0xa00 : AshuraBounceCount == 1 ? 0x900 : 0x800
+	
+	char.velocity.y = -force
+		
+
+	char.state = char.state.ROLLING
+	char.flags |= (char.flag.IN_AIR | char.flag.ROLLING)
+	char.jumping = 1
+	char.double_jump_state = 5
+	char.on_convex_surface = 0
+	char.hitbox_extends.x = char.hitbox.x.ROLLING
+	char.hitbox_extends.y = char.hitbox.y.ROLLING
+
+	s8 dy = char.hitbox_extends.y - char.hitbox.default.y
+	char.position.y.u16 += (global.inv_gravity) ? dy : -dy
+	AshuraBounceDirection = 0
+	AshuraIsTeleporting = 0
+	if (AshuraBounceCount != 2)
+	{
+		++AshuraBounceCount
+	}
+	else
+	{
+		AshuraBounceCount = 2
+	}
+char.flags &= ~(char.flag.PUSHING| char.flag.ON_OBJECT)
+	playSound(SFX_BUBBLEBOUNCE)
+
+}
+
+function void releaseDropDash()
+{
+	if !(global.characters == CHARACTER_ASHURA)
+	{
+		base.releaseDropDash()
+		return
+	}
+	// Release drop dash!
+
+	// Show dust cloud
+	if (char.drown_countdown >= 12 && abs(s8(char.rotation)) < 0x1c)
+	{
+		u8[A6 + 0x20] = 0x02
+		u16[A6 + 0x10] = char.position.x.u16
+		u16[A6 + 0x14] = char.position.y.u16
+		u8[A6 + 0x23] = 0x01
+		u8[A6 + 0x2a] = char.flags & char.flag.FACING_LEFT
+	}
+
+	s16 dy = s8(14 - char.hitbox_extends.y)
+	char.hitbox_extends.x = char.hitbox.x.ROLLING
+	char.hitbox_extends.y = char.hitbox.y.ROLLING
+	char.position.y.u16 += global.inv_gravity ? dy : -dy
+
+	char.state = char.state.ROLLING
+	char.flags |= char.flag.ROLLING
+	char.spindash = 0
+	char.double_jump_state = 0
+
+	// Camera delay
+	if (A0 == 0xffffb000)
+	{
+		ClearPositionBackup()
+		camera.locktime.player1 = 0x0c00
+	}
+	else
+	{
+		camera.locktime.player2 = 0x0c00
+	}
+	s16 baseSpeed = AshuraIsTeleporting == 1 ? abs(char.velocity.y) : AshuraBounceCount == 2 ? 0xa00 : AshuraBounceCount == 1 ? 0x900 : 0x800
+	s16 maxSpeed  = super.active ? 0x0e00 : 0x0d00
+	if ((char.flags & char.flag.FACING_LEFT) == 0)
+	{
+		if (char.velocity.x > 0)
+		{
+			char.groundspeed = min(baseSpeed + (char.groundspeed >> 2), maxSpeed)
+		}
+		else if (char.rotation != 0)
+		{
+			char.groundspeed = baseSpeed + (char.groundspeed >> 1)
+		}
+		else
+		{
+			char.groundspeed = baseSpeed
+		}
+	}
+	else
+	{
+		baseSpeed = -baseSpeed
+		if (char.velocity.x < 0)
+		{
+			char.groundspeed = max(baseSpeed + (char.groundspeed >> 2), -maxSpeed)
+		}
+		else if (char.rotation != 0)
+		{
+			char.groundspeed = baseSpeed + (char.groundspeed >> 1)
+		}
+		else
+		{
+			char.groundspeed = baseSpeed
+		}
+	}
+	AshuraBounceDirection = 0
+	AshuraBlockTeleport = false
+
+	
+	if (super.active)
+	{
+		// Using upper byte to signal the difference between Hyper Knuckles hitting the wall and Super/Hyper Sonic's drop dash
+		camera.hyper_knux_shake = 0x0114
+
+		Character.ClearEnemiesOnScreen()
+		playSound(0x49)
+	}
+
+	Audio.playAudio("dropdash_release", AudioContext.CONTEXT_SOUND)
+#if STANDALONE
+	if (super.active)
+		Input.setControllerRumbleByAddress(A0, 0.5f, 1.0f, 200)
+	else
+		Input.setControllerRumbleByAddress(A0, 0.0f, 1.0f, 150)
+#endif
+}
+
+
+
+
+//Make Ashura bounce on water surfaces
+function void Character.checkForWaterSurface()
+{
+	if (global.characters == CHARACTER_ASHURA)
+{
+#if GAMEAPP
+	if (A0 == 0xffffb000 && (!level.water_present || (s16(char.position.y.u16) <= s16(water.height.current))))
+	{
+		Game.setUnderwaterAudioEffect(0)
+	}
+#endif
+
+	if (!level.water_present)
+		return
+
+	bool wasUnderwaterBefore = (char.flags & char.flag.UNDERWATER) != 0
+	bool isUnderwaterNow = (s16(char.position.y.u16) > s16(water.height.current))
+	if (isUnderwaterNow == wasUnderwaterBefore)
+		return
+
+	++water.transition_counter
+	A1 = A0
+	UpdateMusicOnWaterTransition()
+
+	bool isSuperActive = super.active
+	bool controlFlag = (char.control_flags == 0)
+	if (char.character == CHARACTER_TAILS)
+	{
+		isSuperActive = super.active.tails
+		controlFlag = (tails.ai_routine == 4) || (char.control_flags == 0)
+	}
+
+	if (isUnderwaterNow)
+	{
+		char.flags |= char.flag.UNDERWATER
+
+		// Spawn underwater update object
+		if (char.character == CHARACTER_TAILS)
+		{
+			u32[0xffffcb76] = addressof(UnderwaterUpdate.BaseUpdate)
+			u8[0xffffcb76 + 0x2c] = 0x81
+			u32[0xffffcb76 + 0x40] = A0
+		}
+		else
+		{
+			u32[0xffffcb2c] = addressof(UnderwaterUpdate.BaseUpdate)
+			u8[0xffffcb2c + 0x2c] = 0x81
+			u32[0xffffcb2c + 0x40] = A0
+		}
+
+		if (controlFlag)
+		{
+			if !(char.double_jump_state == 4)
+			{
+			char.velocity.x >>= 1
+			char.velocity.y >>= 2
+			}
+			if (char.velocity.y != 0)
+			{
+				// Set state of dust cloud object to 0x01
+				u16[A6 + 0x20] = 0x0100
+				playSound(SFX_WATERSPLASH)
+				if (char.double_jump_state == 4)
+			{
+				Character.LandingOnGroundResetState()
+			}
+			}
+		}
+
+	#if STANDALONE
+		// Update achievement
+		if (A0 == 0xffffb000)
+		{
+			Game.setAchievementValue(ACHIEVEMENT_LBZ_STAY_DRY, 0)
+		}
+	#endif
+	}
+	else
+	{
+		char.flags &= ~char.flag.UNDERWATER
+
+		if (controlFlag && char.base_state != base_state.HURT)
+		{
+			if (char.velocity.y >= -0x400)
+			{
+				char.velocity.y *= 2
+			}
+		}
+
+		if (char.state != char.state.DISAPPEARED && char.velocity.y != 0)
+		{
+			// Set state of dust cloud object to 0x01
+			u16[A6 + 0x20] = 0x0100
+			char.velocity.y = max(char.velocity.y, -0x1000)
+			playSound(SFX_WATERSPLASH)
+
+			if (char.double_jump_state == 4)
+			{
+				Character.LandingOnGroundResetState()
+			}
+			
+		}
+	}
+
+	// Update physics
+	setSpeedCapProperties(A4)
+}
+else
+{
+	base.Character.checkForWaterSurface()
+	return
+}
+}
+
+//# address-hook(0x01952a) end(0x0195a4)
+function void InstaShield.Update()
+{
+	if (global.characters != CHARACTER_ASHURA)
+	{
+		base.InstaShield.Update()
+		return
+	}
+	A2 = 0xffff0000 + objA0.shield.character_address
+	if ((u8[A2 + 0x2b] & char.bonus.INVINCIBLE) == 0)
+	{
+		objA0.position.x.u16 = u16[A2 + 0x10]
+		objA0.position.y.u16 = u16[A2 + 0x14]
+		objA0.flags2a = u8[A2 + 0x2a] & char.flag.FACING_LEFT
+		if (global.inv_gravity)
+			objA0.flags2a |= 0x02
+		objA0.sprite_attributes = (objA0.sprite_attributes & ~sprite_attribute.PRIORITY) | (u16[A2 + 0x0a] & sprite_attribute.PRIORITY)
+
+		Object.animationUpdate(0x0199ea)
+
+		if (objA0.animation.sprite == 7)
+		{
+			if (u8[A2 + 0x2f] != 0)	// char.double_jump_state
+			{
+				if (u8[A2 + 0x2f] == 2)
+				{
+				AshuraStateSetBack = 2
+				}
+				else if (u8[A2 + 0x2f] == 4)
+				{
+					AshuraStateSetBack = 3
+				}
+				else if (u8[A2 + 0x2f] == 6)
+				{
+					AshuraStateSetBack = 4
+				}
+			}
+			AshuraIsTeleporting = 0
+		}
+
+		if (objA0.animation.sprite == 0 || objA0.animation.sprite == 3)
+		{
+			Shield.SharedSpriteUpdate()
+		}
+
+	#if STANDALONE
+		if (u8[A2 + 0x20] == char.state.DISAPPEARED)
+			return
+	#endif
+
+		DrawObject()
+	}
+}
+
+
+
+
+
+
+
+
+function void checkForBalancing()
+{
+	s8 balancing = 0
+
+	if (char.flags & char.flag.ON_OBJECT)
+	{
+		// Standing on an object, get its address in RAM
+		A1 = 0xffff0000 + char.object_standing_on
+
+		// Some kind of "no balancing here" flag?
+		//  -> I could not find any use-case for it, but using it in AIR for the mgz_spinwheeltrigger
+		if ((u8[A1 + 0x2a] & 0x80) == 0)
+		{
+			if (char.character == CHARACTER_SONIC)
+			{
+				D1.u16 = objA1.box_size.x + char.position.x.u16 - objA1.position.x.u16
+				D2.u16 = objA1.box_size.x * 2 - 2
+
+				if (D1.s16 < 2)
+				{
+					balancing = -1
+					if (D1.s16 < -4 && !super.active)
+						balancing = -2
+				}
+				else if (D1.s16 >= D2.s16)
+				{
+					balancing = 1
+					if (D1.s16 >= D2.s16 + 6 && !super.active)
+						balancing = 2
+				}
+			}
+			else if (char.character == CHARACTER_TAILS)
+			{
+				D1.u16 = objA1.box_size.x + char.position.x.u16 - objA1.position.x.u16
+				D2.u16 = objA1.box_size.x * 2 - 4
+
+				if (D1.s16 < 4)
+				{
+					balancing = -1
+				}
+				else if (D1.s16 >= D2.s16)
+				{
+					balancing = 1
+				}
+			}
+			else if (char.character == CHARACTER_KNUCKLES)
+			{
+				D1.u16 = objA1.box_size.x + char.position.x.u16 - objA1.position.x.u16
+				D2.u16 = objA1.box_size.x * 2 - 2
+
+				if (D1.s16 < 2)
+				{
+					balancing = -1
+				}
+				else if (D1.s16 >= D2.s16)
+				{
+					balancing = 1
+				}
+			}
+		}
+	}
+	else
+	{
+		// Not on an object
+		D3.u16 = char.position.x.u16
+		Character.checkGroundEdgeCollision()
+
+		if (D1.s16 >= 0x0c)
+		{
+			if (char.angle_sensor_1 == 0x03)
+			{
+				balancing = 1
+				if (char.character == CHARACTER_SONIC && !super.active)
+				{
+					D3.u16 = char.position.x.u16 - 6
+					Character.checkGroundEdgeCollision()
+					if (D1.s16 >= 0x0c)
+						balancing = 2
+				}
+			}
+			else if (char.angle_sensor_2 == 0x03)
+			{
+				balancing = -1
+				if (char.character == CHARACTER_SONIC && !super.active)
+				{
+					D3.u16 = char.position.x.u16 + 6
+					Character.checkGroundEdgeCollision()
+					if (D1.s16 >= 0x0c)
+						balancing = -2
+				}
+			}
+		}
+	}
+
+	if (balancing != 0)
+	{
+		// Set balancing state 1 or 2 (only Sonic actually uses balancing state 2)
+		char.state = (abs(balancing) < 2) ? char.state.BALANCING1 : char.state.BALANCING2
+
+		// Face left or right, depending on where we are balancing
+		bool wasFacingLeft = (char.flags & char.flag.FACING_LEFT)
+		bool nowFacingLeft = (balancing < 0)
+
+		if (nowFacingLeft)
+			char.flags |= char.flag.FACING_LEFT
+		else
+			char.flags &= ~char.flag.FACING_LEFT
+
+		if (char.character == CHARACTER_KNUCKLES)
+		{
+			if (wasFacingLeft != nowFacingLeft)
+			{
+				char.state.former = char.state.BALANCING1
+				char.animation.frame = 4
+				char.animation.timer = 0
+			}
+		}
+	}
+}

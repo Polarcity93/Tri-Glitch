@@ -1,0 +1,1486 @@
+global u16 WechnniaSpeedCap
+global u16 WechniaAccel
+global u16 WechniaDecel
+
+//# address-hook(0x017118) end(0x017140)
+function void Character.UpdateKnucklesRollingInAir()
+{
+    if !(global.characters == CHARACTER_WECHNIA)
+    {
+        base.Character.UpdateKnucklesRollingInAir()
+        return
+    }
+
+	UpdateKnucklesJumpMoves()
+	Character.UpdateControlInAir()
+	Character.CheckAgainstMoveBorders()
+	Character.UpdateMovement()
+
+	if (char.flags & char.flag.UNDERWATER)
+	{
+		// Gravity
+		char.velocity.y -= 0x28
+	}
+
+	Character.UpdateRotationInAir()
+	Character.CheckCollision()
+}
+
+
+//# address-hook(0x01684c) end(0x01688e)
+function void Character.UpdateKnucklesUprightInAir()
+{
+    if !(global.characters == CHARACTER_WECHNIA)
+    {
+        base.Character.UpdateKnucklesUprightInAir()
+        return
+    }
+	// Gliding or not?
+	if (char.double_jump_state == 0)
+	{
+		Character.UpdateKnucklesRollingInAir()
+	}
+	else
+	{
+		UpdateWechniaAirMoves()
+	}
+}
+
+
+function void Character.updateJumpMoves()
+{
+    if !(global.characters == CHARACTER_WECHNIA)
+    {
+        base.Character.updateJumpMoves()
+        return
+    }
+	u8 input_state     = (char.character == CHARACTER_TAILS) ? control.tails.state   : control.player1.state
+	u8 input_pressed   = (char.character == CHARACTER_TAILS) ? control.tails.pressed : control.player1.pressed
+	bool isSuperActive = (char.character == CHARACTER_TAILS) ? super.active.tails    : super.active
+
+	if (char.jumping)
+	{
+		// Limit velocity.y
+		s16 max_vy = (char.flags & char.flag.UNDERWATER) ? -0x200 : -0x400
+		if (char.velocity.y < max_vy)
+		{
+			// Limit vertical velocity while not pressing any jump button
+			//  -> This is important to support low jumps by just tapping the button briefly
+			if ((input_state & CONTROL_ABC) == 0)
+			{
+				char.velocity.y = max_vy
+			}
+		}
+		else
+		{
+			if (char.double_jump_state == 0)
+			{
+				#if STANDALONE
+					if (Input.buttonPressed(BUTTON_Y))
+					{
+						if (!isSuperActive && char.invuln.countdown == 0)	// Check invulnerability to prevent spamming of super activate + cancel
+						{
+							if (Character.performSuperTransformation())
+								return
+						}
+					}
+				#endif
+
+				// Check if pressed jump again in mid-air
+				if (input_pressed & CONTROL_ABC)
+				{
+				#if STANDALONE
+					// Check for other things to do instead of the usual reaction to jump button pressed
+					if (onCharacterPressedJumpInMidAir(input_state, input_pressed))
+				#endif
+					{
+						StartWechniaHover()
+					}
+				}
+			}
+
+		#if STANDALONE
+			if (Game.getSetting(SETTING_DROPDASH) && char.character == CHARACTER_SONIC && !competition_mode.active)
+			{
+				// Handle drop dash
+				//  -> Can only be charged if there is no shield active (only exception: drop dash charge started already, when shield gets active -- this reflects Sonic Mania's behavior)
+				//  -> But can be charged if invincible (incl. Super / Hyper Sonic)
+				bool chargeDropDash = (control.player1.state & CONTROL_ABC) && ((char.bonus_effect & char.bonus.ELEMENTAL_SHIELDS) == 0 || (char.bonus_effect & char.bonus.INVINCIBLE) || sonic.dropdash_counter > 0) && char.double_jump_state
+				if (chargeDropDash)
+				{
+					if (sonic.dropdash_counter < DROPDASH_FULLCHARGE)
+					{
+						// Drop dash charging
+						++sonic.dropdash_counter
+						if (sonic.dropdash_counter == DROPDASH_FULLCHARGE)
+						{
+							// Fully charged now
+							char.state = char.state.SONIC_DROPDASH
+							Audio.playAudio("dropdash_charge", AudioContext.CONTEXT_SOUND)
+						}
+					}
+					Input.setControllerRumbleByAddress(A0, 0.0f, 0.25f, 100)
+				}
+				else if (sonic.dropdash_counter > 0)
+				{
+					// Abort drop dash
+					sonic.dropdash_counter = 0
+					char.state = char.state.ROLLING
+				}
+			}
+		#endif
+		}
+	}
+	else
+	{
+		if (char.spindash == 0)
+		{
+			char.velocity.y = max(char.velocity.y, -0x0fc0)
+		}
+	}
+}
+
+//# translated(0x0117da) end(0x0118ba)
+//# translated(0x015002) end(0x0150d8)
+//# translated(0x017710) end(0x0177e8)
+function bool Character.CheckStartJump()
+{
+	if (global.characters != CHARACTER_WECHNIA)
+	{
+		return base.Character.CheckStartJump()
+	}
+	u8 input_pressed = (char.character == CHARACTER_TAILS) ? control.tails.pressed : control.player1.pressed
+	if ((input_pressed & CONTROL_ABC) == 0)
+		return false
+
+	D0 = char.rotation
+	if (global.inv_gravity)
+	{
+		D0.s8 = -D0.s8
+	}
+	else
+	{
+		D0.s8 += 0x80
+	}
+
+	pushA456()
+	fn00f72e()
+	popA456()
+
+	if (D1.s16 < 6)
+		return false
+
+	// Get jump acceleration depending on character
+	u16 acceleration
+		if (char.flags & char.flag.UNDERWATER)
+		{
+			acceleration = 0x300
+		}
+		else if (super.active && char.character == CHARACTER_SONIC)
+		{
+			acceleration = 0x750
+		}
+		else
+		{
+			acceleration = 0x600
+		}
+
+	u8 angle = char.rotation - 0x40
+	s32 accel_x = (s32(lookupCos(angle)) * acceleration) >> 8
+	s32 accel_y = (s32(lookupSin(angle)) * acceleration) >> 8
+
+	char.velocity.x += accel_x
+	char.velocity.y += accel_y
+
+	char.flags |= char.flag.IN_AIR
+	char.flags &= ~char.flag.PUSHING
+
+	char.jumping = 1
+	char.on_convex_surface = 0
+	char.double_jump_state = 0
+
+	playSound(SFX_JUMP)
+
+	// Start roll jump
+	if (char.flags & char.flag.ROLLING)
+	{
+	#if STANDALONE
+		if (!Game.getSetting(SETTING_NO_CONTROL_LOCK))
+	#endif
+		{
+			char.hitbox_extends.x = char.hitbox.default.x
+			char.hitbox_extends.y = char.hitbox.default.y
+			char.flags |= char.flag.CONTROL_LOCK
+		}
+	}
+	else
+	{
+		char.hitbox_extends.x = char.hitbox.x.ROLLING
+		char.hitbox_extends.y = char.hitbox.y.ROLLING
+		char.flags |= char.flag.ROLLING
+		char.state = char.state.ROLLING
+
+		s8 dy = s8(char.hitbox_extends.y) - s8(char.hitbox.default.y)
+		char.position.y.u16 += global.inv_gravity ? dy : -dy
+
+	#if STANDALONE
+		// Glitch fix for Knuckles being unable to jump off underwater objects
+		//  -> Move him up a single pixel up so he won't stick to objects
+		// TODO: Does not work for the HCZ snake platforms
+		if (acceleration <= 0x300 && (char.flags & char.flag.ON_OBJECT))
+		{
+			--char.position.y.u16
+		}
+	#endif
+	}
+	return true
+}
+
+function void setWechniapeedCapProperties()
+{
+	bool isSuperActive = super.active
+	// Set new max speed cap etc.:
+	//  - WechnniaSpeedCap     = maximum speed			-> e.g. global.move.speedcap
+	//  - WechniaAccel = maximum acceleration	-> e.g. global.move.acceleration
+	//  - WechniaDecel = maximum deceleration	-> e.g. global.move.deceleration
+
+	if (char.flags & char.flag.UNDERWATER)
+	{
+		// In water
+	#if STANDALONE
+		if (char.bonus_effect & char.bonus.SPEED_UP)
+		{
+			WechnniaSpeedCap = max(WechnniaSpeedCap, 0x600)
+			WechniaAccel = max(WechniaAccel, 0x0c)
+			WechniaDecel = max(WechniaDecel, 0x40)
+		}
+		else
+	#endif
+		if (isSuperActive)
+		{
+				WechnniaSpeedCap = 0x400
+				WechniaAccel = 0x0c
+				WechniaDecel = 0x60
+		}
+		else
+		{
+			WechnniaSpeedCap = 0x300
+			WechniaAccel = 0x06
+			WechniaDecel = 0x40
+		}
+	}
+	else
+	{
+		// Out of water
+	#if STANDALONE
+		if (char.bonus_effect & char.bonus.SPEED_UP)
+		{
+			WechnniaSpeedCap = max(WechnniaSpeedCap, 0xc00)
+			WechniaAccel = max(WechniaAccel, 0x18)
+			WechniaDecel = max(WechniaDecel, 0x80)
+		}
+		else
+	#endif
+		if (isSuperActive)
+		{
+				WechnniaSpeedCap = 0x800
+				WechniaAccel = 0x18
+				WechniaDecel = 0xc0
+		}
+		else
+		{
+			WechnniaSpeedCap = 0x600
+			WechniaAccel = 0x0c
+			WechniaDecel = 0x80
+		}
+	}
+}
+
+
+function void StartWechniaHover()
+{
+    	// Start gliding
+	char.flags &= ~(char.flag.ROLLING | char.flag.CONTROL_LOCK)
+	char.hitbox_extends.x = char.hitbox.default.x
+	char.hitbox_extends.y = char.hitbox.default.y
+	char.double_jump_state = 1
+	char.groundspeed = abs(char.velocity.x) > abs(char.velocity.y) ? char.velocity.x : char.velocity.y
+	setWechniapeedCapProperties()
+    
+	if (control.player1.state & CONTROL_UP)
+	{
+		if (control.player1.state & CONTROL_RIGHT)
+		{
+			char.rotation = 0xe0
+			WechniaRotation = 0x00
+		}
+		else if (control.player1.state & CONTROL_LEFT)
+		{
+			char.rotation = 0x20
+			WechniaRotation = 0x00
+		}
+		else
+		{
+			char.rotation = (char.flags & char.flag.FACING_LEFT) ? 0x40 : 0xc0
+			WechniaRotation = (char.flags & char.flag.FACING_LEFT) ? 0x40 : 0xc0
+		}
+	}
+	else if (control.player1.state & CONTROL_DOWN)
+	{
+		if (control.player1.state & CONTROL_RIGHT)
+		{
+			char.rotation = 0x20
+			WechniaRotation = 0x00
+		}
+		else if (control.player1.state & CONTROL_LEFT)
+		{
+			char.rotation = 0xe0
+			WechniaRotation = 0x00
+		}
+		else
+		{
+			char.rotation = (char.flags & char.flag.FACING_LEFT) ? 0xc0 : 0x40
+			WechniaRotation = (char.flags & char.flag.FACING_LEFT) ? 0xc0 : 0x40
+		}
+	}
+	else if (control.player1.state & CONTROL_RIGHT) || (control.player1.state & CONTROL_LEFT)
+	{
+		char.rotation = 0x00
+		WechniaRotation = 0x00
+		char.groundspeed = (control.player1.state & CONTROL_LEFT) ? -abs(char.groundspeed) : abs(char.groundspeed)
+	}
+	else
+	{
+		char.rotation = 0x00
+		WechniaRotation = 0x00
+		char.groundspeed = 0
+	}
+	char.state = char.groundspeed != 0 ? char.state.RUNNING : char.state.KNUX_FALLING
+}
+
+
+function void UpdateWechniaAirMoves()
+{
+    if (char.double_jump_state == 1)
+    {   
+    if (Character.CheckStartJump())
+    return
+    
+    Wechnia.sharedUpdateOnGround()
+	Wechnia.updateUprightOnGroundInner()
+	Character.CheckCollision()
+    }
+    else if (char.double_jump_state == 2)
+    {
+      Character.UpdateControlInAir()
+	Character.CheckAgainstMoveBorders()
+	Character.UpdateMovement()
+
+	if (char.flags & char.flag.UNDERWATER)
+	{
+		// Gravity
+		char.velocity.y -= 0x28
+	}
+
+	Character.UpdateRotationInAir()
+	Character.CheckCollision()  
+    }
+    else if (char.double_jump_state == 3)
+    {
+        Character.UpdateControlInAir()
+	Character.CheckAgainstMoveBorders()
+	Character.UpdateMovement()
+
+	if (char.flags & char.flag.UNDERWATER)
+	{
+		// Gravity
+		char.velocity.y -= 0x28
+	}
+
+	Character.UpdateRotationInAir()
+	Character.CheckCollision()
+    }
+    else if (char.double_jump_state == 4)
+    {
+      return
+    }
+    else if (char.double_jump_state == 5)
+    {
+      // Climbing up a ledge
+		if (char.animation.timer == 0)
+		{
+			fn016efe()
+			if (knuckles.glide_direction == 0x10)
+			{
+				char.groundspeed = 0
+				char.velocity.x = 0
+				char.velocity.y = 0
+				if (char.flags & char.flag.FACING_LEFT)
+					--char.position.x.u16
+
+				Character.LandingOnGroundNoSpindash()
+				char.state = char.state.STANDING
+			}
+		}
+    }
+}
+
+function void Wechnia.UpdateUprightSlopeEffect()
+{
+	s8 signedRotation = char.rotation
+	if (signedRotation >= -0x60 && signedRotation < 0x60)	// Ignore rolling at the ceiling
+	{
+		s16 slopeEffect = (s32(lookupSin(char.rotation)) * 0x50) >> 8
+		if ((char.groundspeed >= 0) != (slopeEffect >= 0)) && char.state == char.state.ROLLING
+		{
+			// Going upward: much less effect of slope
+			slopeEffect >>= 4
+		}
+		else
+		{
+			// Going upward: much less effect of slope
+			slopeEffect >>= 2
+		}
+		char.groundspeed += slopeEffect
+	}
+}
+
+function void Wechnia.sharedUpdateOnGround()
+{
+	Character.CheckAgainstMoveBorders()
+	UpdateMovementStraight()
+}
+global u8 WechniaRotation //i didnt want to use global variables for this but it appears that i must
+
+function void WechniaPressedLeftWhileUprightOnGround()
+{
+	if WechniaRotation == 0x00 && ((char.rotation >= 0x00 && char.rotation < 0x40) && (char.flags & char.flag.FACING_LEFT)) ||  (((char.rotation > 0xc0 && char.rotation <= 0xff) || (char.rotation == 0x00)) && (char.flags & char.flag.FACING_LEFT) == 0)
+	{
+	D0.u16 = char.groundspeed
+	if (D0.s16 > 0)
+	{
+		// Pressed left while running right, thus braking
+		D0.u16 -= D4.u16
+		if (D0.s16 < 0)
+			D0.s16 = -0x80
+		char.groundspeed = D0.u16
+
+		// Check for braking state (only when rotated upright and going fast enough)
+			// 'char.flags2d & 0x80' prevents braking animation when set
+			if (D0.s16 >= 0x400)
+		{
+			if ((char.flags2d & 0x80) == 0)
+			{
+				playSound(SFX_BRAKE)
+				char.state = char.state.BRAKING
+				char.flags &= ~char.flag.FACING_LEFT
+
+				// Start braking dust animation if drown countdown is not active
+				if (char.drown_countdown >= 12)
+				{
+					u8[A6 + 0x05] = 0x06		// Base update for braking dust
+					u8[A6 + 0x22] = 0x15		// First frame of dust animation
+				}
+			}
+		}
+	}
+	else
+	{
+		if ((char.flags & char.flag.FACING_LEFT) == 0)
+		{
+			char.flags |= char.flag.FACING_LEFT
+			char.flags &= ~char.flag.PUSHING
+			char.state.former = char.state.RUNNING2
+		}
+
+		D0.u16 -= D5.u16
+		D1.s16 = -D6.s16
+		if (D0.s16 <= D1.s16)
+		{
+			D0.s16 += D5.s16
+			D0.s16 = min(D0.s16, D1.s16)
+		}
+		char.groundspeed = D0.u16
+		char.state = char.state.RUNNING
+	}
+	}
+	else if (((char.rotation >= 0x00 && char.rotation <= 0x40) && (char.flags & char.flag.FACING_LEFT) && WechniaRotation == 0x40) || ((char.rotation > 0x80 && char.rotation <= 0xc0) && (char.flags & char.flag.FACING_LEFT) == 0) && WechniaRotation == 0xc0)
+	{
+		if (char.flags & char.flag.FACING_LEFT)
+		{
+            char.rotation -= 3
+			if (char.rotation <= 0x00 || char.rotation >= 0xfe)
+			{
+				char.rotation = 0x00
+				WechniaRotation = 0x00
+			}
+		}
+		else
+		{
+            char.rotation -= 3
+			if (char.rotation <= 0x80)
+			{
+				char.rotation = 0x80
+				WechniaRotation = 0x80
+			}
+		}
+	}
+}
+
+function void WechniaPressedRightWhileUprightOnGround()
+{
+	if (WechniaRotation == 0x00 && (((char.rotation >= 0x00 && char.rotation < 0x40) && (char.flags & char.flag.FACING_LEFT)) || (((char.rotation > 0xc0 && char.rotation <= 0xff) || (char.rotation == 0x00)) && (char.flags & char.flag.FACING_LEFT) == 0)))
+	{
+	D0.u16 = char.groundspeed
+	if (D0.s16 < 0)
+	{
+		// Pressed right while running left, thus braking
+		D0.u16 += D4.u16
+		if (D0.s16 >= 0)
+			D0.s16 = 0x80
+		char.groundspeed = D0.u16
+
+		// Check for braking state (only when rotated upright and going fast enough)
+			// 'char.flags2d & 0x80' prevents braking animation when set
+			if (D0.s16 <= -0x400)
+		{
+			if ((char.flags2d & 0x80) == 0)
+			{
+				playSound(SFX_BRAKE)
+				char.state = char.state.BRAKING
+				char.flags |= char.flag.FACING_LEFT
+
+				// Start braking dust animation if drown countdown is not active
+				if (char.drown_countdown >= 12)
+				{
+					u8[A6 + 0x05] = 0x06		// Base update for braking dust
+					u8[A6 + 0x22] = 0x15		// First frame of dust animation
+				}
+			}
+		}
+	}
+	else
+	{
+		if (char.flags & char.flag.FACING_LEFT)
+		{
+			char.flags &= ~(char.flag.FACING_LEFT | char.flag.PUSHING)
+			char.state.former = char.state.RUNNING2
+		}
+
+		D0.u16 += D5.u16
+		if (D0.s16 >= D6.s16)
+		{
+			D0.u16 -= D5.u16
+			D0.s16 = max(D0.s16, D6.s16)
+		}
+		char.groundspeed = D0.u16
+		char.state = char.state.RUNNING
+	}
+	}
+	else if (((char.rotation >= 0x40 && char.rotation < 0x80) && (char.flags & char.flag.FACING_LEFT) && WechniaRotation == 0x40) || (((char.rotation >= 0xc0 && char.rotation <= 0xff) || (char.rotation == 0x00)) && (char.flags & char.flag.FACING_LEFT) == 0 && WechniaRotation == 0xc0))
+	{
+		if (char.flags & char.flag.FACING_LEFT)
+		{
+			char.rotation += 3
+			if (char.rotation >= 0x80)
+			{
+				char.rotation = 0x80
+				WechniaRotation = 0x80
+			}
+		}
+		else
+		{
+			char.rotation += 3
+			if (char.rotation < 0xc0)
+			{
+				char.rotation = 0x00
+				WechniaRotation = 0x00
+			}
+		}
+	}
+	else if (((char.rotation >= 0x00 && char.rotation <= 0x40) && (char.flags & char.flag.FACING_LEFT) == 0 && WechniaRotation == 0x40) || (((char.rotation >= 0x80 && char.rotation <= 0xc0)) && (char.flags & char.flag.FACING_LEFT) && WechniaRotation == 0xc0))
+	{
+		if (char.flags & char.flag.FACING_LEFT)
+		{
+            char.rotation -= 3
+			if (char.rotation <= 0x80)
+			{
+				char.rotation = 0x80
+				WechniaRotation = 0x80
+			}
+		}
+		else
+		{
+            char.rotation -= 3
+			if (char.rotation <= 0x00 || char.rotation >= 0xfe)
+			{
+				char.rotation = 0x00
+				WechniaRotation = 0x00
+			}
+		}
+	}
+}
+
+function void WechniaPressedUpWhileUprightOnGround()
+{
+    	if (((char.rotation >= 0x40 && char.rotation < 0x80) && (char.flags & char.flag.FACING_LEFT) && WechniaRotation == 0x40) || (((char.rotation >= 0xc0 && char.rotation <= 0xff) || (char.rotation == 0x00)) && (char.flags & char.flag.FACING_LEFT) == 0 && WechniaRotation == 0xc0))
+	{
+	if (char.flags & char.flag.FACING_LEFT)
+	{
+		D0.u16 = char.groundspeed
+		if ((char.flags & char.flag.FACING_LEFT) == 0)
+		{
+			char.flags |= char.flag.FACING_LEFT
+			char.flags &= ~char.flag.PUSHING
+			char.state.former = char.state.RUNNING2
+		}
+
+		D0.u16 -= D5.u16
+		D1.s16 = -D6.s16
+		if (D0.s16 <= D1.s16)
+		{
+			D0.s16 += D5.s16
+			D0.s16 = min(D0.s16, D1.s16)
+		}
+		char.groundspeed = D0.u16
+		char.state = char.state.RUNNING
+	}
+	else
+	{
+	    D0.u16 = char.groundspeed
+		if (char.flags & char.flag.FACING_LEFT)
+		{
+			char.flags &= ~(char.flag.FACING_LEFT | char.flag.PUSHING)
+			char.state.former = char.state.RUNNING2
+		}
+
+		D0.u16 += D5.u16
+		if (D0.s16 >= D6.s16)
+		{
+			D0.u16 -= D5.u16
+			D0.s16 = max(D0.s16, D6.s16)
+		}
+		char.groundspeed = D0.u16
+		char.state = char.state.RUNNING
+	}
+	}
+	else if (((char.rotation >= 0x40 && char.rotation < 0x80) && (char.flags & char.flag.FACING_LEFT) == 0 && WechniaRotation == 0x40) || (((char.rotation >= 0xc0 && char.rotation <= 0xff) || (char.rotation == 0x00)) && (char.flags & char.flag.FACING_LEFT) && WechniaRotation == 0xc0))
+	{
+	D0.u16 = char.groundspeed
+	if (D0.s16 > 0)
+	{
+		// Pressed left while running right, thus braking
+		D0.u16 -= D4.u16
+		if (D0.s16 < 0)
+			D0.s16 = -0x80
+		char.groundspeed = D0.u16
+
+		// Check for braking state (only when rotated upright and going fast enough)
+			// 'char.flags2d & 0x80' prevents braking animation when set
+			if (D0.s16 >= 0x400)
+		{
+			if ((char.flags2d & 0x80) == 0)
+			{
+				playSound(SFX_BRAKE)
+				char.state = char.state.BRAKING
+				char.flags &= ~char.flag.FACING_LEFT
+
+				// Start braking dust animation if drown countdown is not active
+				if (char.drown_countdown >= 12)
+				{
+					u8[A6 + 0x05] = 0x06		// Base update for braking dust
+					u8[A6 + 0x22] = 0x15		// First frame of dust animation
+				}
+			}
+		}
+	}	
+	else if (D0.s16 < 0)
+	{
+		// Pressed right while running left, thus braking
+		D0.u16 += D4.u16
+		if (D0.s16 >= 0)
+			D0.s16 = 0x80
+		char.groundspeed = D0.u16
+
+		// Check for braking state (only when rotated upright and going fast enough)
+			// 'char.flags2d & 0x80' prevents braking animation when set
+		if (D0.s16 <= -0x400)
+		{
+			if ((char.flags2d & 0x80) == 0)
+			{
+				playSound(SFX_BRAKE)
+				char.state = char.state.BRAKING
+				char.flags |= char.flag.FACING_LEFT
+
+				// Start braking dust animation if drown countdown is not active
+				if (char.drown_countdown >= 12)
+				{
+					u8[A6 + 0x05] = 0x06		// Base update for braking dust
+					u8[A6 + 0x22] = 0x15		// First frame of dust animation
+				}
+			}
+		}
+	}
+}
+	else if ((char.rotation >= 0x00 && char.rotation < 0x40) && (char.flags & char.flag.FACING_LEFT) && WechniaRotation == 0x00) ||  (((char.rotation > 0xc0 && char.rotation <= 0xff) || (char.rotation == 0x00)) && (char.flags & char.flag.FACING_LEFT) == 0 && WechniaRotation == 0x00)
+	{
+		if (char.flags & char.flag.FACING_LEFT)
+		{
+			char.rotation += 3
+			if (char.rotation >= 0x40)
+			{
+				char.rotation = 0x40
+				WechniaRotation = 0x40
+			}
+		}
+		else
+		{
+            char.rotation -= 3
+			if (char.rotation <= 0xc0)
+			{
+				char.rotation = 0xc0
+				WechniaRotation = 0xc0
+			}
+		}
+	}
+}
+
+function void WechniaPressedDownWhileUprightOnGround()
+{
+		if (((char.rotation >= 0x40 && char.rotation < 0x80) && (char.flags & char.flag.FACING_LEFT) == 0 && WechniaRotation == 0x40) || (((char.rotation >= 0xc0 && char.rotation <= 0xff) || (char.rotation == 0x00)) && (char.flags & char.flag.FACING_LEFT) && WechniaRotation == 0xc0))
+	{
+	if (char.flags & char.flag.FACING_LEFT)
+	{
+		D0.u16 = char.groundspeed
+		if ((char.flags & char.flag.FACING_LEFT) == 0)
+		{
+			char.flags |= char.flag.FACING_LEFT
+			char.flags &= ~char.flag.PUSHING
+			char.state.former = char.state.RUNNING2
+		}
+
+		D0.u16 -= D5.u16
+		D1.s16 = -D6.s16
+		if (D0.s16 <= D1.s16)
+		{
+			D0.s16 += D5.s16
+			D0.s16 = min(D0.s16, D1.s16)
+		}
+		char.groundspeed = D0.u16
+		char.state = char.state.RUNNING
+	}
+	else
+	{
+	D0.u16 = char.groundspeed
+		if (char.flags & char.flag.FACING_LEFT)
+		{
+			char.flags &= ~(char.flag.FACING_LEFT | char.flag.PUSHING)
+			char.state.former = char.state.RUNNING2
+		}
+
+		D0.u16 += D5.u16
+		if (D0.s16 >= D6.s16)
+		{
+			D0.u16 -= D5.u16
+			D0.s16 = max(D0.s16, D6.s16)
+		}
+		char.groundspeed = D0.u16
+		char.state = char.state.RUNNING
+	}
+	}
+	else if (((char.rotation >= 0x40 && char.rotation < 0x80) && (char.flags & char.flag.FACING_LEFT) && WechniaRotation == 0x40) || (((char.rotation >= 0xc0 && char.rotation <= 0xff) || (char.rotation == 0x00)) && (char.flags & char.flag.FACING_LEFT) == 0 && WechniaRotation == 0xc0))
+{
+	D0.u16 = char.groundspeed
+	if (D0.s16 > 0)
+	{
+		// Pressed left while running right, thus braking
+		D0.u16 -= D4.u16
+		if (D0.s16 < 0)
+			D0.s16 = -0x80
+		char.groundspeed = D0.u16
+
+		// Check for braking state (only when rotated upright and going fast enough)
+			// 'char.flags2d & 0x80' prevents braking animation when set
+			if (D0.s16 >= 0x400)
+		{
+			if ((char.flags2d & 0x80) == 0)
+			{
+				playSound(SFX_BRAKE)
+				char.state = char.state.BRAKING
+				char.flags &= ~char.flag.FACING_LEFT
+
+				// Start braking dust animation if drown countdown is not active
+				if (char.drown_countdown >= 12)
+				{
+					u8[A6 + 0x05] = 0x06		// Base update for braking dust
+					u8[A6 + 0x22] = 0x15		// First frame of dust animation
+				}
+			}
+		}
+	}	
+	else if (D0.s16 < 0)
+	{
+		// Pressed right while running left, thus braking
+		D0.u16 += D4.u16
+		if (D0.s16 >= 0)
+			D0.s16 = 0x80
+		char.groundspeed = D0.u16
+
+		// Check for braking state (only when rotated upright and going fast enough)
+			// 'char.flags2d & 0x80' prevents braking animation when set
+		if (D0.s16 <= -0x400)
+		{
+			if ((char.flags2d & 0x80) == 0)
+			{
+				playSound(SFX_BRAKE)
+				char.state = char.state.BRAKING
+				char.flags |= char.flag.FACING_LEFT
+
+				// Start braking dust animation if drown countdown is not active
+				if (char.drown_countdown >= 12)
+				{
+					u8[A6 + 0x05] = 0x06		// Base update for braking dust
+					u8[A6 + 0x22] = 0x15		// First frame of dust animation
+				}
+			}
+		}
+	}
+}
+	else if ((((char.rotation > 0xc0 && char.rotation <= 0xff) || (char.rotation == 0x00)) && (char.flags & char.flag.FACING_LEFT)) ||  ((char.rotation >= 0x00 && char.rotation < 0x40) && (char.flags & char.flag.FACING_LEFT) == 0))
+	{
+		if (char.flags & char.flag.FACING_LEFT)
+		{
+            char.rotation -= 3
+			if (char.rotation <= 0xc0)
+			{
+				char.rotation = 0xc0
+				WechniaRotation = 0xc0
+			}
+		}
+		else
+		{
+			char.rotation += 3
+			if (char.rotation >= 0x40)
+			{
+				char.rotation = 0x40
+				WechniaRotation = 0x40
+			}
+		}
+	}
+}
+
+
+
+
+
+
+function void Wechnia.updateUprightOnGroundInner()
+{
+	u8 input_state     = (char.character == CHARACTER_TAILS) ? control.tails.state : control.player1.state
+	bool isSuperActive = (char.character == CHARACTER_TAILS) ? super.active.tails  : super.active
+
+	// These are in order:
+	//  - maximum speed
+	//  - maximum acceleration
+	//  - maximum deceleration
+	D6.u16 = WechnniaSpeedCap
+	D5.u16 = u16[A4 + 2]
+	D4.u16 = WechniaDecel
+	u8 rotation = getRotationQuarter(char.rotation)
+	debugLog(char.rotation)
+	debugLog(WechniaRotation)
+	debugLog(char.groundspeed)
+
+
+	if ((char.bonus_effect & char.bonus.INFINITE_INERTIA) == 0)
+	{
+		// Camera move state:
+		//   0 = no input up/down
+		//   1 = up/down pressed, but still in delay
+		//   2 = up/down pressed, actual movement (limit may be reached)
+		u8 cameraMoveState = 0
+
+		if (char.hlock_countdown == 0)
+		{
+			// Movement left or right
+			if (input_state & CONTROL_LEFT)
+			{
+				// Though the original code uses different functions for the three characters here, they actually are identical
+				WechniaPressedLeftWhileUprightOnGround()
+			}
+			if (input_state & CONTROL_RIGHT)
+			{
+				// Though the original code uses different functions for the three characters here, they actually are identical
+				WechniaPressedRightWhileUprightOnGround()
+			}
+			if (input_state & CONTROL_UP && char.groundspeed != 0)
+			{
+				WechniaPressedUpWhileUprightOnGround()
+			}
+			if (input_state & CONTROL_DOWN && char.groundspeed != 0)
+			{
+				WechniaPressedDownWhileUprightOnGround()
+			}
+
+			// Standing upright?
+			
+			if (abs(char.groundspeed) == 0)
+			{
+				char.flags &= ~char.flag.PUSHING
+				char.state = char.state.KNUX_FALLING
+				char.rotation = 0x00
+				WechniaRotation = 0x00
+
+				// Can only look up/down when state was not changed to balancing
+				if (char.state == char.state.KNUX_FALLING)
+				{
+					if (input_state & (CONTROL_UP | CONTROL_DOWN))
+					{
+						cameraMoveState = 1
+						char.state = (input_state & CONTROL_DOWN) ? char.state.COWERING : char.state.LOOKING_UP
+
+						// Start camera movement after countdown
+						++char.look_up_down_timer
+						if (char.look_up_down_timer >= Character.look_up_down_delay)
+						{
+							cameraMoveState = 2
+							char.look_up_down_timer = Character.look_up_down_delay
+
+							if (char.state == char.state.COWERING)
+							{
+								// Move camera down (or up in inverse gravity)
+								if (global.inv_gravity == 0)
+								{
+									if (u16[A5] != 0x08)
+										u16[A5] -= 2
+								}
+								else
+								{
+									if (u16[A5] != 0xd8)
+										u16[A5] += 2
+								}
+							}
+							else
+							{
+								// Move camera up (or down in inverse gravity)
+								if (global.inv_gravity == 0)
+								{
+									if (u16[A5] != 0xc8)
+										u16[A5] += 2
+								}
+								else
+								{
+									if (u16[A5] != 0x18)
+										u16[A5] -= 2
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		if (cameraMoveState < 2)
+		{
+			if (cameraMoveState < 1)
+			{
+				char.look_up_down_timer = 0
+			}
+
+			centerCameraYOffset()
+		}
+
+		// Decelerate
+		if (isSuperActive)
+		{
+			D5.u16 = 0x0c
+		}
+
+		if (((WechniaRotation == 0x00 || WechniaRotation == 0x80) && ((input_state & (CONTROL_LEFT | CONTROL_RIGHT)) == 0)) || ((WechniaRotation == 0x40 || WechniaRotation == 0xc0) && ((input_state & (CONTROL_UP | CONTROL_DOWN)) == 0)))	// No left or right (or up or down) pressed
+		{
+			if (char.groundspeed != 0)
+			{
+				if (char.groundspeed > 0)
+					char.groundspeed = max(char.groundspeed - D5.s16, 0)
+				
+				else
+					char.groundspeed = min(char.groundspeed + D5.s16, 0)
+			}
+		}
+	}
+
+	char.velocity.x = (s32(lookupCos(char.rotation)) * char.groundspeed) >> 8
+	char.velocity.y = (s32(lookupSin(char.rotation)) * char.groundspeed) >> 8
+}
+
+function void Character.LandingOnGroundResetState()
+{
+	if (global.characters != CHARACTER_WECHNIA)
+	{
+		base.Character.LandingOnGroundResetState()
+		return
+	}
+
+	char.flags &= ~(char.flag.IN_AIR | char.flag.PUSHING | char.flag.CONTROL_LOCK)
+	char.jumping = 0
+	score.bonus_counter = 0		// No more increasing bonuses after hitting the ground
+	char.rotation.x = 0
+	char.flags2d = 0
+	char.rotation.x.count = 0
+	char.look_up_down_timer = 0
+
+	// Check for double jump state
+	if (char.double_jump_state != 0)
+	{
+		char.double_jump_state = 0
+	}
+
+	// Check for Knuckles gliding/falling/standup state
+	if (char.character == CHARACTER_KNUCKLES && char.state >= char.state.KNUX_FLYCLIMB)
+	{
+		char.state = char.state.RUNNING
+	}
+}
+
+/*
+//# address-hook(0x016efe) end(0x016f3c)
+function void fn016efe()
+{
+	A1 = 0x016f3e + s8(knuckles.glide_direction)
+	char.animation.sprite = u8[A1]
+	s8 dx = s8[A1 + 1]
+	s8 dy = s8[A1 + 2]
+	char.animation.timer = u8[A1 + 3]
+	A1 += 4
+
+	char.position.x.u16 += (char.flags & char.flag.FACING_LEFT) ? -dx : dx
+	char.position.y.u16 += (global.inv_gravity) ? -dy : dy
+
+	knuckles.glide_direction += 4
+	char.animation.frame = 0
+}
+
+function void Character.sharedUpdateOnGround()
+{
+	Character.CheckAgainstMoveBorders()
+
+#if STANDALONE
+	// Experimental high-precision collision check with multiple samples per frame
+	if (Standalone.useMultiSampleCollision())
+	{
+		u8 STEPS = 4
+		for (u8 step = 0; step < STEPS; ++step)
+		{
+			s32 vx = s32(char.velocity.x) << 8
+			s32 vy = s32(char.velocity.y) << 8
+
+			s32 dx = vx / STEPS
+			s32 dy = vy / STEPS
+			char.position.x += dx
+			char.position.y += global.inv_gravity ? -dy : dy
+
+			Character.UpdateRotationOnGround()
+
+			char.velocity.x = (s32(lookupCos(char.rotation)) * char.groundspeed) >> 8
+			char.velocity.y = (s32(lookupSin(char.rotation)) * char.groundspeed) >> 8
+			char.velocity.x = clamp(char.velocity.x, -0x1000, 0x1000)
+		}
+	}
+	else
+#endif
+	{
+		UpdateMovementStraight()
+		Character.UpdateRotationOnGround()
+	}
+	Character.UpdateGroundContact()
+
+	partialUpdateCharacterOnGround()
+}
+
+//# address-hook(0x011da6) end(0x011dec)
+function void Character.UpdateUprightSlopeEffect()
+{
+	s8 signedRotation = char.rotation
+	if (signedRotation >= -0x60 && signedRotation < 0x60)	// Ignore rolling at the ceiling
+	{
+		s16 slopeEffect = (s32(lookupSin(char.rotation)) * 0x20) >> 8
+		if (char.groundspeed != 0 || abs(slopeEffect) >= 0x0d)
+		{
+			char.groundspeed += slopeEffect
+		}
+	}
+}
+
+
+//# address-hook(0x011dee) end(0x011e28)
+function void Character.UpdateRollingSlopeEffect()
+{
+	s8 signedRotation = char.rotation
+	if (signedRotation >= -0x60 && signedRotation < 0x60)	// Ignore rolling at the ceiling
+	{
+		s16 slopeEffect = (s32(lookupSin(char.rotation)) * 0x50) >> 8
+		if ((char.groundspeed >= 0) != (slopeEffect >= 0))
+		{
+			// Going upward: much less effect of slope
+			slopeEffect >>= 2
+		}
+		char.groundspeed += slopeEffect
+	}
+}
+
+//# translated(0x011bde) end(0x011cf0)
+//# translated(0x011d16) end(0x011da4)
+//# translated(0x0151fc) end(0x01530c)
+//# translated(0x015332) end(0x0153c0)
+function bool Character.UpdateSpindash()
+{
+#if STANDALONE
+	// Ignore this while charging the Super Peel-Out
+	if (char.spindash == 0x80)
+		return false
+#endif
+
+	u8 input_state   = (char.character == CHARACTER_TAILS) ? control.tails.state   : control.player1.state
+	u8 input_pressed = (char.character == CHARACTER_TAILS) ? control.tails.pressed : control.player1.pressed
+
+	if (char.spindash == 0)
+	{
+		bool canStartSpindash = (char.state == char.state.COWERING) && (input_pressed & CONTROL_ABC)
+		if (!canStartSpindash)
+		{
+			// Nothing to see here
+			return false
+		}
+
+		// Start spindash
+		char.state = char.state.SPINDASH
+		playSound(SFX_SPINDASH_CHARGE)
+
+		char.spindash = 1
+		char.spindash_charge = 0
+		if (char.drown_countdown >= 12)
+		{
+			// Set state of dust cloud object to 0x02
+			u8[A6 + 0x20] = 0x02
+		}
+	}
+	else
+	{
+		if (input_state & CONTROL_DOWN)
+		{
+			// Update spindash
+			if (char.spindash_charge > 0)
+			{
+				char.spindash_charge -= char.spindash_charge >> 5
+				if (s16(char.spindash_charge) < 0)
+					char.spindash_charge = 0
+			}
+
+			if (input_pressed & CONTROL_ABC)
+			{
+				// Charge up
+				char.state.both = 0x0900		// char.state.SPINDASH, char.state.RUNNING
+				char.spindash_charge = min(char.spindash_charge + 0x200, 0x800)
+				playSound(SFX_SPINDASH_CHARGE)
+			}
+		#if STANDALONE
+			Input.setControllerRumbleByAddress(A0, 0.0f, 0.2f, 100)
+		#endif
+		}
+		else
+		{
+			releaseSpindash()
+		}
+
+		// Center camera y-offset again
+		centerCameraYOffset()
+	}
+
+	Character.CheckAgainstMoveBorders()
+	Character.UpdateRotationOnGround()
+	partialUpdateCharacterOnGround()
+
+	return true
+}
+
+function void releaseSpindash()
+{
+	// Release spindash!
+	char.hitbox_extends.x = char.hitbox.x.ROLLING
+	char.hitbox_extends.y = char.hitbox.y.ROLLING
+	char.state = char.state.ROLLING
+	char.flags |= char.flag.ROLLING
+	char.spindash = 0
+
+	u32 baseAddress
+	s8 dy = 5
+	if (char.character != CHARACTER_TAILS)
+	{
+		baseAddress = (super.active) ? 0x011d04 : 0x011cf2
+	}
+	else
+	{
+		baseAddress = (super.active.tails) ? 0x015320 : 0x01530e
+		dy = 1
+	}
+	D0 = u16(char.spindash_charge >> 8) * 2
+	char.groundspeed = s16[baseAddress + D0]
+
+	char.position.y.u16 += (global.inv_gravity) ? -dy : dy
+
+	D0.u16 = (char.groundspeed - 0x800) * 2
+	D0.u16 = 0x2000 - (D0.u16 & 0x1f00)
+
+	// Camera delay
+	if (A0 == 0xffffb000)
+	{
+	#if STANDALONE
+		// This does not hurt
+		ClearPositionBackup()
+	#endif
+		camera.locktime.player1 = D0.u16
+	}
+	else
+	{
+		camera.locktime.player2 = D0.u16
+	}
+
+	if (char.flags & char.flag.FACING_LEFT)
+	{
+		char.groundspeed = -char.groundspeed
+	}
+
+	// Tell dust cloud object to disappear again
+	u8[A6 + 0x20] = 0
+
+	playSound(SFX_SPINDASH_RELEASE)
+#if STANDALONE
+	Input.setControllerRumbleByAddress(A0, 0.0f, 1.0f, 150)
+#endif
+}
+
+function void updateCharacterControlOnGround()
+{
+	u8 input_state     = (char.character == CHARACTER_TAILS) ? control.tails.state   : control.player1.state
+	bool isSuperActive = (char.character == CHARACTER_TAILS) ? super.active.tails    : super.active
+
+	D6.u16 = u16[A4] << 1
+	D5.u16 = u16[A4 + 2] >> 1
+	if (isSuperActive)
+	{
+		D5.u16 = 6
+	}
+
+	if ((char.spindash & 0x80) == 0 && (char.bonus_effect & char.bonus.INFINITE_INERTIA) == 0)
+	{
+		if (char.hlock_countdown == 0)
+		{
+			u16 acceleration = 0x20
+
+			if (input_state & CONTROL_LEFT)
+			{
+				if (char.groundspeed > 0)
+				{
+					char.groundspeed -= acceleration
+					if (char.groundspeed < 0)
+						char.groundspeed = -0x80
+				}
+				else
+				{
+					char.flags |= char.flag.FACING_LEFT
+					char.state = char.state.ROLLING
+				}
+			}
+
+			if (input_state & CONTROL_RIGHT)
+			{
+				if (char.groundspeed < 0)
+				{
+					char.groundspeed += acceleration
+					if (char.groundspeed >= 0)
+						char.groundspeed = 0x80
+				}
+				else
+				{
+					char.flags &= ~char.flag.FACING_LEFT
+					char.state = char.state.ROLLING
+				}
+			}
+		}
+
+		if (char.groundspeed != 0)
+		{
+			if (char.groundspeed > 0)
+				char.groundspeed = max(char.groundspeed - D5.s16, 0)
+			else
+				char.groundspeed = min(char.groundspeed + D5.s16, 0)
+		}
+
+		if (abs(char.groundspeed) < 0x80)
+		{
+			if (char.spindash == 0)
+			{
+				// Stop rolling
+				char.flags &= ~char.flag.ROLLING
+
+				s16 dy = s16(char.hitbox_extends.y) - s16(char.hitbox.default.y)
+				char.position.y.u16 += (global.inv_gravity) ? -dy : dy
+
+				char.hitbox_extends.x = char.hitbox.default.x
+				char.hitbox_extends.y = char.hitbox.default.y
+				char.state = char.state.STANDING
+			}
+			else
+			{
+				char.groundspeed = (char.flags & char.flag.FACING_LEFT) ? -0x400 : 0x400
+			}
+		}
+	}
+
+	centerCameraYOffset()
+
+	char.velocity.x = (s32(lookupCos(char.rotation)) * char.groundspeed) >> 8
+	char.velocity.y = (s32(lookupSin(char.rotation)) * char.groundspeed) >> 8
+
+	char.velocity.x = clamp(char.velocity.x, -0x1000, 0x1000)
+
+	Character.UpdateControlOnGroundShared()
+}
+
+//# address-hook(0x011350) end(0x0113f4)
+function void Character.UpdateControlOnGroundShared()
+{
+	if (char.control_flags & control_flag.DISABLE_WALLS)
+		return
+
+	if (char.rotation & 0x3f)
+	{
+		if (abs(s8(char.rotation)) > 0x40)
+			return
+	}
+
+	D1.u8 = 0x40
+	if (char.groundspeed != 0)
+	{
+		if (char.groundspeed >= 0)
+			D1.s16 = -D1.s16
+		D0.u8 = char.rotation + D1.u8
+
+		u16 backup = D0.u16
+		fn00f61c()
+		D0.u16 = backup
+
+		if (D1.s16 < 0)
+		{
+			D1.s16 <<= 8
+			if (global.zone == 0x08)	// Sandopolis
+			{
+				if (D0.s8 < 0)
+					--D0.s8
+			}
+
+			u8 angle = (D0.u8 + 0x20) & 0xc0
+			if (angle == 0)
+			{
+				// Upright
+				char.velocity.y += D1.s16
+			}
+			else if (angle == 0x40)
+			{
+				// Left wall
+				char.velocity.x -= D1.s16
+				char.groundspeed = 0
+				if (char.flags & char.flag.FACING_LEFT)
+				{
+					char.flags |= char.flag.PUSHING
+				}
+			}
+			else if (angle == 0x80)
+			{
+				// Upside down
+				char.velocity.y -= D1.s16
+			}
+			else
+			{
+				// Right wall
+				char.velocity.x += D1.s16
+				char.groundspeed = 0
+				if (!(char.flags & char.flag.FACING_LEFT))
+				{
+					char.flags |= char.flag.PUSHING
+				}
+			}
+		}
+	}
+}
+
+
+//# address-hook(0x01174a) end(0x0117d8)
+//# address-hook(0x014f74) end(0x015000)
+function void Character.CheckForStartRolling()
+{
+	u8 input_state = (char.character == CHARACTER_TAILS) ? control.tails.state : control.player1.state
+
+	if ((char.bonus_effect & char.bonus.INFINITE_INERTIA) == 0)
+	{
+		if ((input_state & (CONTROL_LEFT | CONTROL_RIGHT)) == 0)	// No left or right pressed
+		{
+			if (input_state & CONTROL_DOWN)
+			{
+				if (abs(char.groundspeed) >= 0x100)
+				{
+					// Start rolling
+					if ((char.flags & char.flag.ROLLING) == 0)
+					{
+						char.flags |= char.flag.ROLLING
+						char.hitbox_extends.x = char.hitbox.x.ROLLING
+						char.hitbox_extends.y = char.hitbox.y.ROLLING
+						char.state = char.state.ROLLING
+
+						s8 dy = (char.character == CHARACTER_TAILS) ? 1 : 5
+						char.position.y.u16 += (global.inv_gravity) ? -dy : dy
+
+						playSound(SFX_ROLL)
+						if (char.groundspeed == 0)
+							char.groundspeed = 0x200
+					}
+				}
+				else if ((char.flags & char.flag.ON_OBJECT) == 0)
+				{
+					char.state = char.state.COWERING
+				#if STANDALONE
+					// Also slow down a little
+					if (char.groundspeed <= -4)
+						char.groundspeed += 4
+					else if (char.groundspeed >= 4)
+						char.groundspeed -= 4
+				#endif
+				}
+			}
+			else
+			{
+				// Stop crouching
+				if (char.state == char.state.COWERING)
+					char.state = char.state.RUNNING
+
+			#if STANDALONE
+				// Allow for starting the Super Peel-Out even if still moving slowly, just like handling for the spindash
+				//  (this logic here is active even if the Peel-Out is not enabled)
+				if ((input_state & CONTROL_UP) && abs(char.groundspeed) < 0x100 && (char.flags & char.flag.ON_OBJECT) == 0)
+				{
+					char.state = char.state.LOOKING_UP
+					if (char.groundspeed <= -4)
+						char.groundspeed += 4
+					else if (char.groundspeed >= 4)
+						char.groundspeed -= 4
+				}
+			#endif
+			}
+		}
+	}
+}
+*/
+
+
+
+
