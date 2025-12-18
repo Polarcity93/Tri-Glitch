@@ -144,14 +144,19 @@ function void updateCharacterRollingOnGround()
 	if (char.character == CHARACTER_TAILS)
 		Tails.CheckDropSonic()
 
-	if (char.spindash == 0)
+	if (char.spindash == 0 || char.spindash == 0x80)
 	{
+		 if (Character.UpdateSpindash())
+       return
+
 		if (Character.CheckStartJump())
 			return
+		if (Ashura.updateSnapDash())
+			return
+		
 	}
      
-	if (Ashura.updateSnapDash())
-			return
+	
 
 
 	if (char.double_jump_state == 1 || char.double_jump_state == 2 || char.spindash == 0x80)
@@ -194,7 +199,6 @@ function void updateCharacterRollingOnGround()
 	updateCharacterControlOnGround()
 	Character.sharedUpdateOnGround()
 }
-
 
 //# address-hook(0x010fb6) end(0x010fde)
 function void Character.UpdateSonicUprightInAir()
@@ -2097,6 +2101,7 @@ function void checkForBalancing()
 	}
 
 }
+
 
 
 
