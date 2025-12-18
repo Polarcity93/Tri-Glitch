@@ -339,7 +339,7 @@ function bool Character.UpdateSpindash()
 		}
 		if (abs(char.groundspeed) >= 0x200)
     {
-		char.groundspeed = char.flags & char.flag.FACING_LEFT ? -0x200 : 0x200
+		char.groundspeed = char.groundspeed < 0 ? -0x200 : 0x200
 	}
 	else
 	{
@@ -380,7 +380,7 @@ function bool Character.UpdateSpindash()
 
 	if abs(char.groundspeed) > 0x00
 	{
-	if char.flags & char.flag.FACING_LEFT && char.groundspeed < 0x00
+	if char.groundspeed < 0x00
     {
 		char.groundspeed += 0x20
 
@@ -389,7 +389,7 @@ function bool Character.UpdateSpindash()
 			char.groundspeed = 0x00
 		}
 	}
-	if (char.flags & char.flag.FACING_LEFT) == 0  && char.groundspeed > 0x00
+	if char.groundspeed > 0x00
     {
 		char.groundspeed -= 0x20
 
@@ -2097,5 +2097,6 @@ function void checkForBalancing()
 	}
 
 }
+
 
 
