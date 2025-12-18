@@ -367,6 +367,11 @@ function bool MISC.drawGlitches(u8 character, u8 variant, s16 px, s16 py, bool a
 				oldRotationPlayer2 = angle
 		}
 
+          	if (char.state == char.state.SPINDASH)
+		{
+			angle = char.rotation
+		}
+
 		constant array<u8> MISCsidewaysCorkscrewSprites =
 		{
 			0x36, 0x37, 0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x31, 0x32, 0x33, 0x34, 0x35
