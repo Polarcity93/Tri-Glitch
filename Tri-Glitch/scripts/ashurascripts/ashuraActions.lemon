@@ -401,8 +401,7 @@ function bool Character.UpdateSpindash()
 
 	debugLog(char.groundspeed)
 	updateCharacterControlOnGround()
-
-	Character.sharedUpdateOnGround()
+    UpdateMovementStraight()
 	}
 
 	Character.CheckAgainstMoveBorders()
@@ -2098,4 +2097,5 @@ function void checkForBalancing()
 	}
 
 }
+
 
