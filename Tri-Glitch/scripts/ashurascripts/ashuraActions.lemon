@@ -400,7 +400,6 @@ function bool Character.UpdateSpindash()
 	} 
 
 	debugLog(char.groundspeed)
-	Character.UpdateRollingSlopeEffect()
 	updateCharacterControlOnGround()
 
 	Character.sharedUpdateOnGround()
@@ -2099,3 +2098,4 @@ function void checkForBalancing()
 	}
 
 }
+
