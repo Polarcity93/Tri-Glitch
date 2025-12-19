@@ -184,7 +184,7 @@
 	"character_ashura_0xb7": { "File": "character_ashura.bmp", "Rect": "352,624,24,40", "Center": "11,20" },
 	"character_ashura_0xb8": { "File": "character_ashura.bmp", "Rect": "404,624,32,40", "Center": "19,20" },
 	"character_ashura_0xb9": { "File": "character_ashura.bmp", "Rect": "464,624,24,40", "Center": "11,20" },
-	"character_ashura_0xba": { "File": "character_ashura.bmp", "Rect": "516,621,30,43", "Center": "16,23" },
+	"character_ashura_0xba": { "File": "character_ashura.bmp", "Rect": "514,621,32,43", "Center": "16,23" },
 	"character_ashura_0xbb": { "File": "character_ashura.bmp", "Rect": "572,624,32,40", "Center": "18,19" },
 	"character_ashura_0xbc": { "File": "character_ashura.bmp", "Rect": "628,624,32,40", "Center": "18,20" },
 	"character_ashura_0xbd": { "File": "character_ashura.bmp", "Rect": "684,624,32,40", "Center": "18,20" },
@@ -250,3 +250,4 @@
 	"character_ashura_0xf9": { "File": "character_ashura.bmp", "Rect": "464,848,24,40", "Center": "12,20" },
 	"character_ashura_0xfa": { "File": "character_ashura.bmp", "Rect": "516,848,32,40", "Center": "16,20" },
 }
+
